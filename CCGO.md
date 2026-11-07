@@ -12,7 +12,8 @@ entirely.
       for the target, rewrite the emitted C, run ccgo, post-process, split the
       output, write `internal/vt/vt_<goos>_<goarch>_<n>.go`
 - [x] `internal/patches/`: link libc in `GhosttyZig.zig`; `std.compress.flate`
-      zlib decoder in `pkg/wuffs/src/zlib.zig` (with Adler-32 check)
+      zlib decoder in `pkg/wuffs/src/zlib.zig` (with Adler-32 check); CRC32C
+      through libshim and hash/crc32 under the C backend
 - [x] `zig.h` edits applied by the generator (attribute/builtin probes,
       `zig_align`, `zig_import`, `zig_trap`, hoisted bit-reverse table,
       no `__builtin_return_address`)
@@ -27,7 +28,8 @@ entirely.
 - [x] Go post-processing: parenthesize `T{...}.field`, `iqlibc.__builtin_*`
       to `libshim`, split into files under 2^20 lines,
       store unions as byte arrays (Go struct copies drop padding, which
-      held other members' bytes)
+      held other members' bytes), free the TLS frame before each return
+      instead of with defer (goto-heavy bodies cannot open-code defers)
 - [x] Rename Zig's numbered type names to the C header names
       (`GhosttyResult`, `GhosttyString`, ...) by matching prototypes
 - [x] Constants file from the C headers (`GHOSTTY_*` enumerators)

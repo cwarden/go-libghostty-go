@@ -75,36 +75,38 @@ and runs vary by about 20%, so read the ratios as rough.
 
 | Benchmark | cgo | pure Go | ratio |
 | --- | ---: | ---: | ---: |
-| VTWriteCall (one call, no bytes) | 44 ns | 441 ns | 10× |
-| VTWrite/Plain | 251 µs | 1.88 ms | 7× |
-| VTWrite/OSCDense | 785 µs | 5.99 ms | 8× |
-| FormatterVTWriteTo/Plain80x24 | 10.4 µs | 78 µs | 7× |
-| FormatterVTWriteTo/Mixed240x80 | 108 µs | 732 µs | 7× |
-| RenderStateUpdate/Text/Clean | 70 ns | 1.10 µs | 16× |
-| RenderStateUpdate/Text/Row | 169 ns | 2.93 µs | 17× |
-| RenderStateUpdate/Text/Scroll | 903 ns | 4.52 µs | 5× |
-| RenderStateRowCellsGetMulti/Keys1 | 156 ns | 273 ns | 1.8× |
-| RenderStateRowText/Plain/AppendText | 14.5 µs | 93 µs | 6× |
-| RenderStateRowText/Plain/PerCell | 169 µs | 257 µs | 1.5× |
-| RenderStateImageFrame/Fixed/Always | 1.49 µs | 6.39 µs | 4× |
-| SnapshotEncode/PlainNoScrollback/ReuseBuffer | 2.9 µs | 117 µs | 40× |
-| SnapshotEncode/Plain10KScrollback/ReuseBuffer | 415 µs | 32.7 ms | 79× |
-| SnapshotDecode/PlainNoScrollback/Full/ZeroCopy | 29 µs | 160 µs | 6× |
-| SnapshotDecode/Plain10KScrollback/Full/ZeroCopy | 2.2 ms | 38 ms | 17× |
-| geometric mean over all 122 benchmarks | 10.1 µs | 56.9 µs | 5.6× |
+| VTWriteCall (one call, no bytes) | 44 ns | 204 ns | 4.6× |
+| VTWrite/Plain | 251 µs | 1.76 ms | 7× |
+| VTWrite/OSCDense | 785 µs | 4.31 ms | 5.5× |
+| FormatterVTWriteTo/Plain80x24 | 10.4 µs | 83 µs | 8× |
+| FormatterVTWriteTo/Mixed240x80 | 108 µs | 578 µs | 5.3× |
+| RenderStateUpdate/Text/Clean | 70 ns | 591 ns | 8× |
+| RenderStateUpdate/Text/Row | 169 ns | 1.27 µs | 7.5× |
+| RenderStateUpdate/Text/Scroll | 903 ns | 3.61 µs | 4× |
+| RenderStateRowCellsGetMulti/Keys1 | 156 ns | 184 ns | 1.2× |
+| RenderStateRowText/Plain/AppendText | 14.5 µs | 81 µs | 5.6× |
+| RenderStateRowText/Plain/PerCell | 169 µs | 243 µs | 1.4× |
+| RenderStateImageFrame/Fixed/Always | 1.49 µs | 4.84 µs | 3.3× |
+| SnapshotEncode/PlainNoScrollback/ReuseBuffer | 2.9 µs | 36 µs | 12× |
+| SnapshotEncode/Plain10KScrollback/ReuseBuffer | 415 µs | 12.8 ms | 31× |
+| SnapshotDecode/PlainNoScrollback/Full/ZeroCopy | 29 µs | 89 µs | 3.1× |
+| SnapshotDecode/Plain10KScrollback/Full/ZeroCopy | 2.2 ms | 18.8 ms | 8.5× |
+| geometric mean over all 122 benchmarks | 10.1 µs | 32.3 µs | 3.2× |
 
-Two things account for most of the difference. The translated code is
-plain Go with no SIMD: Zig's vectorized scanning of cells and the
-hardware CRC32C instruction are replaced by scalar loops and the
-table-driven software CRC (a profile of snapshot encoding spends half its
-time in `crc32c_Software_updateMulti` and most of the rest in the
-per-cell encoding loop). And each translated function allocates its C
+The translated code is plain Go with no SIMD: Zig's vectorized scanning
+of cells is a scalar loop, and the large functions that Zig inlines (the
+VT stream parser inside `vt_write`, the per-cell loops of the formatter
+and the snapshot encoder) compile to slow code because their bodies are
+made of goto statements. Each translated function also allocates its C
 stack frame from a per-call TLS stack, which matters for the many small
-calls a render state update makes. The bindings themselves add little:
-taking a TLS from the pool costs about 10 ns, pinning an input slice about
-50 ns, and a getter such as `Terminal.CursorX` costs 23 ns through the
-bindings against 6 ns for the translated function alone
-(`BenchmarkLibraryCall` and `BenchmarkLibraryCallRaw`).
+calls a render state update makes. The snapshot CRC32C goes to Go's
+`hash/crc32` through a patch, since the inline CRC instructions have no
+C form and the table-driven fallback took half of the encoding time. The
+bindings themselves add little: taking a TLS from the pool costs about
+10 ns, pinning an input slice about 55 ns, and a getter such as
+`Terminal.CursorX` costs 20 ns through the bindings against 5 ns for the
+translated function alone (`BenchmarkLibraryCall` and
+`BenchmarkLibraryCallRaw`).
 
 `make bench` runs every benchmark; `make bench BENCH_FLAGS="-count 5"`
 passes extra flags, and `benchstat` compares two result files.
@@ -147,12 +149,15 @@ source in file name order:
 | --- | --- |
 | `01-link-libc.patch` | Link libc into libghostty-vt so that it allocates with `malloc` instead of `mmap` and raw system calls, which Zig emits as inline assembly. |
 | `02-std-zlib.patch` | Decode zlib streams (Kitty graphics compression) with `std.compress.flate` instead of wuffs. The wuffs decoder is written as a coroutine that jumps into loops, which has no translation to Go. The replacement checks the Adler-32 trailer, which the standard decompressor reads without verifying. |
+| `03-ccgo-crc32c.patch` | Compute the snapshot CRC32C with Go's `hash/crc32` (the hardware CRC instructions where they exist) through `internal/libshim` when the library is compiled by Zig's C backend. The inline CRC instructions cannot be expressed in C, and the table-driven fallback took half of the time of encoding a snapshot. |
 
 `internal/ccgo` holds what the generator adds to the emitted C: a patch
 to Zig's `zig.h` support header, a prelude with the libc headers, and the
 128-bit integer helpers of compiler-rt. `internal/libshim` is a Go
 package the translation links against for the C functions modernc.org/libc
-lacks (pointer-sized atomics, some overflow builtins, `posix_memalign`).
+lacks (pointer-sized atomics, some overflow builtins, `posix_memalign`)
+and for the CRC32C hook. The comments in `generator.go` describe each
+rewrite of the C and of ccgo's Go output and the reason for it.
 
 Environment variables honoured by the generator:
 

@@ -207,6 +207,8 @@ func main() {
 	// provide are in internal/libshim.
 	vt = regexp.MustCompile(`\biqlibc\.__builtin_`).ReplaceAllString(vt, "libshim.X__builtin_")
 
+	vt = removeFrameDefers(vt)
+
 	types := newTypeMap(headers, cSource)
 	unions := map[string]bool{}
 	for _, m := range regexp.MustCompile(`(?m)^union (\w+) \{`).FindAllStringSubmatch(cSource, -1) {
@@ -365,9 +367,17 @@ func rewriteC(src string) string {
 	// stack frame, which ccgo allocates without zeroing and reuses; those
 	// leftover bits then reach hashes and comparisons. A packed struct is
 	// a bitpack__ scalar, on its own or inside a struct, so initialize
-	// those locals. (Zeroing every frame instead costs 15-40% on
-	// call-heavy paths.)
-	src = regexp.MustCompile(`(?m)^( (?:struct|union) \w+ t\d+) ?;$`).ReplaceAllString(src, "$1 = {0};")
+	// the locals of those types and no others. (Zeroing every frame
+	// costs 15-40% on call-heavy paths; initializing every struct local
+	// costs about 10% in the formatter.)
+	packedTypes := typesWithPackedFields(src)
+	src = regexp.MustCompile(`(?m)^( (?:struct|union) (\w+) t\d+) ?;$`).ReplaceAllStringFunc(src, func(l string) string {
+		m := regexp.MustCompile(`^( (?:struct|union) (\w+) t\d+) ?;$`).FindStringSubmatch(l)
+		if packedTypes[m[2]] {
+			return m[1] + " = {0};"
+		}
+		return l
+	})
 	src = regexp.MustCompile(`(?m)^( bitpack__\w+ t\d+) ?;$`).ReplaceAllString(src, "$1 = 0;")
 	src = dropLayoutAsserts(src)
 	return src
@@ -1101,4 +1111,106 @@ func rewriteUnionStores(src string, unions map[string]bool) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// removeFrameDefers replaces the `defer tls.Free(n)` that releases a
+// function's C stack frame with a call before each return. The bodies
+// are full of goto statements, which keep Go from open-coding a defer,
+// so every call paid a heap-allocated defer record; that was a third of
+// the cost of a call that does no work. Every translated function names
+// its result (r, or another name when a C parameter is called r), so
+// `return expr` becomes an assignment to it, the free, and a bare
+// return. A return expression that spans lines (a composite literal) is
+// followed to its closing brace.
+func removeFrameDefers(src string) string {
+	lines := strings.Split(src, "\n")
+	var out []string
+	free, result := "", ""
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
+		if strings.HasPrefix(l, "func ") {
+			free = ""
+			// The result is named r unless a parameter took that name
+			// (C code may have one), so read it from the signature.
+			result = ""
+			if m := regexp.MustCompile(`\) \((\w+) [^()]+\) \{$`).FindStringSubmatch(l); m != nil {
+				result = m[1]
+			}
+		}
+		if m := regexp.MustCompile(`^\tdefer tls\.Free\((\d+)\)$`).FindStringSubmatch(l); m != nil {
+			free = "tls.Free(" + m[1] + ")"
+			continue
+		}
+		if free == "" {
+			out = append(out, l)
+			continue
+		}
+		if l == "}" {
+			// The end of a function; a void function may fall off
+			// without a return, and then the frame is freed here. After
+			// a top-level return the free would be unreachable, and a
+			// function with a result must end in a terminating statement.
+			if len(out) == 0 || out[len(out)-1] != "\treturn" {
+				out = append(out, "\t"+free)
+			}
+			out = append(out, l)
+			free = ""
+			continue
+		}
+		m := regexp.MustCompile(`^(\t+)return(?: (.*))?$`).FindStringSubmatch(l)
+		if m == nil {
+			out = append(out, l)
+			continue
+		}
+		indent := m[1]
+		if m[2] == "" {
+			out = append(out, indent+free, l)
+			continue
+		}
+		if result == "" {
+			fail("removeFrameDefers: return with a value in a function without a named result: %s", l)
+		}
+		out = append(out, indent+result+" = "+m[2])
+		depth := strings.Count(m[2], "{") - strings.Count(m[2], "}")
+		for depth > 0 {
+			i++
+			out = append(out, lines[i])
+			depth += strings.Count(lines[i], "{") - strings.Count(lines[i], "}")
+		}
+		out = append(out, indent+free, indent+"return")
+	}
+	return strings.Join(out, "\n")
+}
+
+// typesWithPackedFields returns the names of the struct and union types
+// that hold a packed struct (a bitpack__ field), directly or through a
+// nested struct or array member.
+func typesWithPackedFields(src string) map[string]bool {
+	defs := map[string]string{}
+	for _, m := range regexp.MustCompile(`(?ms)^(?:zig_packed\()?(?:struct|union) (\w+) \{(.*?)^\}\)?;`).FindAllStringSubmatch(src, -1) {
+		defs[m[1]] = m[2]
+	}
+	packed := map[string]bool{}
+	for name, body := range defs {
+		if strings.Contains(body, "bitpack__") {
+			packed[name] = true
+		}
+	}
+	member := regexp.MustCompile(`\b(?:struct|union) (\w+)\b[^*]`)
+	for changed := true; changed; {
+		changed = false
+		for name, body := range defs {
+			if packed[name] {
+				continue
+			}
+			for _, m := range member.FindAllStringSubmatch(body, -1) {
+				if packed[m[1]] {
+					packed[name] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return packed
 }
