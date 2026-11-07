@@ -1,0 +1,71 @@
+--- zig.h
++++ zig.h
+@@ -278,7 +278,7 @@
+ #if __STDC_VERSION__ >= 202311L
+ #define zig_align(alignment) alignas(alignment)
+ #elif __STDC_VERSION__ >= 201112L || zig_has_feature(c_alignas)
+-#define zig_align(alignment) _Alignas(alignment)
++#define zig_align(alignment) __attribute__((aligned(alignment)))
+ #else
+ #define zig_align(alignment) zig_under_align(alignment)
+ #endif
+@@ -389,7 +389,7 @@
+     __pragma(comment(linker, "/alternatename:" zig_mangle_c(#fn_name) "=" zig_mangle_c(#libc_name)));
+ #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
+ #else /* zig_msvc */
+-#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm(zig_mangle_c(#libc_name));
++#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args)
+ #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type libc_name sig_args; \
+     static inline Type fn_name sig_args { return libc_name call_args; }
+ #endif
+@@ -412,7 +412,7 @@
+ #define zig_gnuc_asm
+ #endif
+ 
+-#if zig_has_builtin(trap)
++#if 1
+ #define zig_trap() __builtin_trap()
+ #elif defined(zig_msvc)
+ 
+@@ -524,7 +524,7 @@
+ #define zig_breakpoint() zig_breakpoint_unavailable
+ #endif
+ 
+-#if zig_has_builtin(return_address) || defined(zig_gcc) || defined(zig_tinyc)
++#if 0
+ #define zig_return_address() __builtin_extract_return_addr(__builtin_return_address(0))
+ #elif defined(zig_msvc)
+ #define zig_return_address() _ReturnAddress()
+@@ -532,7 +532,7 @@
+ #define zig_return_address() 0
+ #endif
+ 
+-#if zig_has_builtin(frame_address) || defined(zig_gcc) || defined(zig_tinyc)
++#if 0
+ #define zig_frame_address() __builtin_frame_address(0)
+ #elif defined(zig_msvc)
+ #define zig_frame_address() _AddressOfReturnAddress()
+@@ -1783,16 +1783,18 @@
+     return zig_i64_truncate_i64((int64_t)zig_byteSwap_u64((uint64_t)arg, bits), bits);
+ }
+ 
++/* ccgo: hoisted out of zig_bitReverse_u8 so the inlined copies share one table. */
++static uint8_t const zig_bitreverse_lut[0x10] = {
++    0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
++    0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf
++};
++
+ static inline uint8_t zig_bitReverse_u8(uint8_t arg, uint8_t bits) {
+     uint8_t full_res;
+ #if zig_has_builtin(bitreverse8)
+     full_res = __builtin_bitreverse8(arg);
+ #else
+-    static uint8_t const lut[0x10] = {
+-        0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
+-        0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf
+-    };
+-    full_res = lut[arg >> 0 & 0xF] << 4 | lut[arg >> 4 & 0xF] << 0;
++    full_res = zig_bitreverse_lut[arg >> 0 & 0xF] << 4 | zig_bitreverse_lut[arg >> 4 & 0xF] << 0;
+ #endif
+     return zig_u8_truncate_u8(full_res >> (8 - bits), bits);
+ }

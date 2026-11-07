@@ -1,13 +1,11 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
-
 import (
 	"errors"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // Search finds a byte sequence in a terminal's active screen and scrollback
@@ -30,7 +28,7 @@ import (
 //
 // C: GhosttySearch
 type Search struct {
-	ptr C.GhosttySearch
+	ptr vt.GhosttySearch
 }
 
 // SearchStatus describes whether a search can make progress without reading
@@ -42,16 +40,16 @@ type SearchStatus int
 const (
 	// SearchStatusRunning means [Search.Tick] can make progress using data that
 	// the search has already copied from the terminal.
-	SearchStatusRunning SearchStatus = C.GHOSTTY_SEARCH_STATUS_RUNNING
+	SearchStatusRunning SearchStatus = vt.GHOSTTY_SEARCH_STATUS_RUNNING
 
 	// SearchStatusFeedRequired means [Search.Feed] must copy more terminal data
 	// before [Search.Tick] can continue.
-	SearchStatusFeedRequired SearchStatus = C.GHOSTTY_SEARCH_STATUS_FEED_REQUIRED
+	SearchStatusFeedRequired SearchStatus = vt.GHOSTTY_SEARCH_STATUS_FEED_REQUIRED
 
 	// SearchStatusComplete means the search is caught up as of the most recent
 	// [Search.Feed]. An idle Search is also complete. Call [Search.Feed] again
 	// after the terminal changes.
-	SearchStatusComplete SearchStatus = C.GHOSTTY_SEARCH_STATUS_COMPLETE
+	SearchStatusComplete SearchStatus = vt.GHOSTTY_SEARCH_STATUS_COMPLETE
 )
 
 // SearchScrollPolicy controls whether selecting a match moves the terminal
@@ -63,11 +61,11 @@ type SearchScrollPolicy int
 const (
 	// SearchScrollPolicyIfNeeded moves the viewport only when the selected
 	// match is not visible. This is the default policy.
-	SearchScrollPolicyIfNeeded SearchScrollPolicy = C.GHOSTTY_SEARCH_SCROLL_IF_NEEDED
+	SearchScrollPolicyIfNeeded SearchScrollPolicy = vt.GHOSTTY_SEARCH_SCROLL_IF_NEEDED
 
 	// SearchScrollPolicyNever leaves the viewport unchanged when a match is
 	// selected.
-	SearchScrollPolicyNever SearchScrollPolicy = C.GHOSTTY_SEARCH_SCROLL_NONE
+	SearchScrollPolicyNever SearchScrollPolicy = vt.GHOSTTY_SEARCH_SCROLL_NONE
 )
 
 // SearchData identifies a low-level field that can be read with
@@ -80,39 +78,39 @@ type SearchData int
 const (
 	// SearchDataStatus is the current search status (an int32 value compatible
 	// with GhosttySearchStatus).
-	SearchDataStatus SearchData = C.GHOSTTY_SEARCH_DATA_STATUS
+	SearchDataStatus SearchData = vt.GHOSTTY_SEARCH_DATA_STATUS
 
 	// SearchDataNeedle is the current search needle (GhosttyString). Reading this
 	// field returns an error with result [ResultNoValue] when the Search is idle.
 	// Prefer [Search.Needle].
-	SearchDataNeedle SearchData = C.GHOSTTY_SEARCH_DATA_NEEDLE
+	SearchDataNeedle SearchData = vt.GHOSTTY_SEARCH_DATA_NEEDLE
 
 	// SearchDataMatchCount is the number of matches found so far on the active
 	// screen, including scrollback (uint).
-	SearchDataMatchCount SearchData = C.GHOSTTY_SEARCH_DATA_TOTAL_MATCHES
+	SearchDataMatchCount SearchData = vt.GHOSTTY_SEARCH_DATA_TOTAL_MATCHES
 
 	// SearchDataSelectedIndex is the selected match index (uint). Reading this
 	// field returns an error with result [ResultNoValue] when no match is
 	// selected.
-	SearchDataSelectedIndex SearchData = C.GHOSTTY_SEARCH_DATA_SELECTED_INDEX
+	SearchDataSelectedIndex SearchData = vt.GHOSTTY_SEARCH_DATA_SELECTED_INDEX
 
 	// SearchDataSelectedMatch is the selected match (GhosttySelection). Reading
 	// this field returns an error with result [ResultNoValue] when no match is
 	// selected. Prefer [Search.SelectedMatch].
-	SearchDataSelectedMatch SearchData = C.GHOSTTY_SEARCH_DATA_SELECTED_MATCH
+	SearchDataSelectedMatch SearchData = vt.GHOSTTY_SEARCH_DATA_SELECTED_MATCH
 
 	// SearchDataMatches contains the matches found so far on the active screen,
 	// ordered from newest to oldest (GhosttySelectionBuffer). Prefer
 	// [Search.Matches].
-	SearchDataMatches SearchData = C.GHOSTTY_SEARCH_DATA_MATCHES
+	SearchDataMatches SearchData = vt.GHOSTTY_SEARCH_DATA_MATCHES
 
 	// SearchDataViewportMatches contains matches near the viewport
 	// (GhosttySelectionBuffer). Prefer [Search.ViewportMatches].
-	SearchDataViewportMatches SearchData = C.GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES
+	SearchDataViewportMatches SearchData = vt.GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES
 
 	// SearchDataScrollPolicy is the current scroll policy (an int32 value
 	// compatible with GhosttySearchScroll).
-	SearchDataScrollPolicy SearchData = C.GHOSTTY_SEARCH_DATA_SELECT_SCROLL
+	SearchDataScrollPolicy SearchData = vt.GHOSTTY_SEARCH_DATA_SELECT_SCROLL
 )
 
 // NewSearch creates an idle search for the given terminal. Call
@@ -122,11 +120,16 @@ const (
 // NewSearch registers with the terminal so that either value can be closed
 // first. Callers must not use the terminal concurrently while NewSearch runs.
 func NewSearch(t *Terminal) (*Search, error) {
-	var ptr C.GhosttySearch
-	if err := resultError(C.ghostty_search_new(nil, &ptr, t.ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	if err := resultError(vt.Xghostty_search_new(tls, 0, out, t.ptr)); err != nil {
 		return nil, err
 	}
-	return &Search{ptr: ptr}, nil
+	return &Search{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close releases resources owned by the search. If the terminal is still
@@ -134,11 +137,13 @@ func NewSearch(t *Terminal) (*Search, error) {
 // access the terminal concurrently while Close runs. The Search must not be
 // used after Close returns, except that calling Close again is a safe no-op.
 func (s *Search) Close() {
-	if s == nil || s.ptr == nil {
+	if s == nil || s.ptr == 0 {
 		return
 	}
-	C.ghostty_search_free(s.ptr)
-	s.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_search_free(tls, s.ptr)
+	s.ptr = 0
 }
 
 // Tick performs a bounded amount of search work and returns the new status.
@@ -148,11 +153,16 @@ func (s *Search) Close() {
 // If the terminal has been closed, Tick returns an [Error] whose Result is
 // [ResultInvalidValue].
 func (s *Search) Tick() (SearchStatus, error) {
-	var status C.GhosttySearchStatus
-	if err := resultError(C.ghostty_search_tick(s.ptr, &status)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(vt.GhosttySearchStatus(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*vt.GhosttySearchStatus)(unsafe.Pointer(out)) = 0
+	if err := resultError(vt.Xghostty_search_tick(tls, s.ptr, out)); err != nil {
 		return 0, err
 	}
-	return SearchStatus(status), nil
+	return SearchStatus(*(*vt.GhosttySearchStatus)(unsafe.Pointer(out))), nil
 }
 
 // Feed copies recent terminal state into the Search. It updates matches in the
@@ -162,7 +172,9 @@ func (s *Search) Tick() (SearchStatus, error) {
 //
 // Callers must not access the terminal concurrently while Feed runs.
 func (s *Search) Feed() error {
-	return resultError(C.ghostty_search_feed(s.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_search_feed(tls, s.ptr))
 }
 
 // Run blocks until the Search has processed the terminal's current contents.
@@ -171,7 +183,9 @@ func (s *Search) Feed() error {
 //
 // Callers must not access the terminal concurrently while Run executes.
 func (s *Search) Run() error {
-	return resultError(C.ghostty_search_run(s.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_search_run(tls, s.ptr))
 }
 
 // GetMulti reads several low-level search fields in one library call. Each
@@ -197,21 +211,27 @@ func (s *Search) GetMulti(keys []SearchData, values []unsafe.Pointer) (written i
 
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttySearchData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttySearchData](&args, keys, values)
 	if err != nil {
 		return 0, err
 	}
 	defer args.free()
 
-	var cWritten C.size_t
-	err = resultError(C.ghostty_search_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(uint64(0)))
+	cWritten := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(cWritten)) = 0
+	err = resultError(vt.Xghostty_search_get_multi(
+		tls,
 		s.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		&cWritten,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		cWritten,
 	))
-	return int(cWritten), err
+	return int(*(*uint64)(unsafe.Pointer(cWritten))), err
 }
 
 // SetNeedle sets the byte sequence to find. Matching is byte-for-byte except
@@ -223,8 +243,10 @@ func (s *Search) GetMulti(keys []SearchData, values []unsafe.Pointer) (written i
 // equivalent needle again preserves the current results. Equivalence uses the
 // same ASCII case-insensitive comparison as matching.
 func (s *Search) SetNeedle(needle []byte) error {
+	tls := getTLS()
+	defer putTLS(tls)
 	if len(needle) == 0 {
-		return s.set(C.GHOSTTY_SEARCH_OPT_NEEDLE, nil)
+		return s.set(tls, vt.GHOSTTY_SEARCH_OPT_NEEDLE, 0)
 	}
 
 	allocationSize := uintptr(len(needle))
@@ -235,11 +257,14 @@ func (s *Search) SetNeedle(needle []byte) error {
 	defer Free(ptr, allocationSize)
 	copy(unsafe.Slice((*byte)(ptr), len(needle)), needle)
 
-	value := C.GhosttyString{
-		ptr: (*C.uint8_t)(ptr),
-		len: C.size_t(len(needle)),
+	n := int(unsafe.Sizeof(vt.GhosttyString{}))
+	value := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*vt.GhosttyString)(unsafe.Pointer(value)) = vt.GhosttyString{
+		Fptr:  uintptr(ptr),
+		Flen1: uint64(len(needle)),
 	}
-	return s.set(C.GHOSTTY_SEARCH_OPT_NEEDLE, unsafe.Pointer(&value))
+	return s.set(tls, vt.GHOSTTY_SEARCH_OPT_NEEDLE, value)
 }
 
 // SelectNext first updates the Search from the terminal, then selects the next
@@ -247,7 +272,9 @@ func (s *Search) SetNeedle(needle []byte) error {
 // the newest match. It returns an error with result [ResultNoValue] when the
 // search has no matches.
 func (s *Search) SelectNext() error {
-	return resultError(C.ghostty_search_select_next(s.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_search_select_next(tls, s.ptr))
 }
 
 // SelectPrevious first updates the Search from the terminal, then selects the
@@ -255,32 +282,35 @@ func (s *Search) SelectNext() error {
 // back to the oldest match. It returns an error with result [ResultNoValue]
 // when the search has no matches.
 func (s *Search) SelectPrevious() error {
-	return resultError(C.ghostty_search_select_prev(s.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_search_select_prev(tls, s.ptr))
 }
 
 // SetScrollPolicy sets how selecting a match affects the terminal viewport.
 // It only changes Search state and may run while another goroutine accesses
 // the terminal.
 func (s *Search) SetScrollPolicy(policy SearchScrollPolicy) error {
-	value := C.GhosttySearchScroll(policy)
-	return s.set(C.GHOSTTY_SEARCH_OPT_SELECT_SCROLL, unsafe.Pointer(&value))
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(vt.GhosttySearchScroll(0)))
+	value := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*vt.GhosttySearchScroll)(unsafe.Pointer(value)) = vt.GhosttySearchScroll(policy)
+	return s.set(tls, vt.GHOSTTY_SEARCH_OPT_SELECT_SCROLL, value)
 }
 
 // Status reports whether the Search can make progress without another call to
 // [Search.Feed]. A complete Search may become stale after the terminal changes.
 func (s *Search) Status() (SearchStatus, error) {
-	var status C.GhosttySearchStatus
-	if err := s.get(SearchDataStatus, unsafe.Pointer(&status)); err != nil {
-		return 0, err
-	}
-	return SearchStatus(status), nil
+	v, err := searchGet[vt.GhosttySearchStatus](s, SearchDataStatus)
+	return SearchStatus(v), err
 }
 
 // Needle returns a copy of the current search needle. It returns nil when the
 // Search is idle. The returned bytes remain valid after later Search calls.
 func (s *Search) Needle() ([]byte, error) {
-	var value C.GhosttyString
-	err := s.get(SearchDataNeedle, unsafe.Pointer(&value))
+	value, err := searchGet[vt.GhosttyString](s, SearchDataNeedle)
 	if err != nil {
 		if isResult(err, ResultNoValue) {
 			return nil, nil
@@ -299,18 +329,14 @@ func (s *Search) Needle() ([]byte, error) {
 // copied by the most recent [Search.Feed] and can increase until
 // [Search.Status] returns [SearchStatusComplete].
 func (s *Search) MatchCount() (uint, error) {
-	var count C.size_t
-	if err := s.get(SearchDataMatchCount, unsafe.Pointer(&count)); err != nil {
-		return 0, err
-	}
-	return uint(count), nil
+	count, err := searchGet[uint64](s, SearchDataMatchCount)
+	return uint(count), err
 }
 
 // SelectedIndex returns the selected match's index in [Search.Matches]. It
 // returns nil when no match is selected. Index zero is the newest match.
 func (s *Search) SelectedIndex() (*uint, error) {
-	var index C.size_t
-	err := s.get(SearchDataSelectedIndex, unsafe.Pointer(&index))
+	index, err := searchGet[uint64](s, SearchDataSelectedIndex)
 	if err != nil {
 		if isResult(err, ResultNoValue) {
 			return nil, nil
@@ -325,8 +351,7 @@ func (s *Search) SelectedIndex() (*uint, error) {
 // no match is selected. The next operation that mutates the terminal may
 // invalidate the Selection.
 func (s *Search) SelectedMatch() (*Selection, error) {
-	var value C.GhosttySelection
-	err := s.get(SearchDataSelectedMatch, unsafe.Pointer(&value))
+	value, err := searchGet[vt.GhosttySelection](s, SearchDataSelectedMatch)
 	if err != nil {
 		if isResult(err, ResultNoValue) {
 			return nil, nil
@@ -358,58 +383,81 @@ func (s *Search) ViewportMatches() ([]Selection, error) {
 
 // ScrollPolicy returns the policy used when a match is selected.
 func (s *Search) ScrollPolicy() (SearchScrollPolicy, error) {
-	var policy C.GhosttySearchScroll
-	if err := s.get(SearchDataScrollPolicy, unsafe.Pointer(&policy)); err != nil {
-		return 0, err
-	}
-	return SearchScrollPolicy(policy), nil
+	policy, err := searchGet[vt.GhosttySearchScroll](s, SearchDataScrollPolicy)
+	return SearchScrollPolicy(policy), err
 }
 
 // selections reads either match list. The output buffer uses C memory because
 // GhosttySelection contains C pointers.
 func (s *Search) selections(data SearchData) ([]Selection, error) {
-	var buffer C.GhosttySelectionBuffer
-	err := s.get(data, unsafe.Pointer(&buffer))
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(vt.GhosttySelectionBuffer{}))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	buffer := (*vt.GhosttySelectionBuffer)(unsafe.Pointer(p))
+	*buffer = vt.GhosttySelectionBuffer{}
+
+	err := s.get(tls, data, p)
 	if err != nil && !isResult(err, ResultOutOfSpace) {
 		return nil, err
 	}
 
-	capacity := int(buffer.len)
+	capacity := int(buffer.Flen1)
 	if capacity == 0 {
 		return nil, nil
 	}
 
-	allocationSize := uintptr(capacity) * C.sizeof_GhosttySelection
+	allocationSize := uintptr(capacity) * unsafe.Sizeof(vt.GhosttySelection{})
 	ptr := Alloc(allocationSize)
 	if ptr == nil {
 		return nil, &Error{Result: ResultOutOfMemory}
 	}
 	defer Free(ptr, allocationSize)
 
-	buffer.ptr = (*C.GhosttySelection)(ptr)
-	buffer.cap = C.size_t(capacity)
-	buffer.len = 0
-	if err := s.get(data, unsafe.Pointer(&buffer)); err != nil {
+	buffer.Fptr = uintptr(ptr)
+	buffer.Fcap1 = uint64(capacity)
+	buffer.Flen1 = 0
+	if err := s.get(tls, data, p); err != nil {
 		return nil, err
 	}
-	length := int(buffer.len)
+	length := int(buffer.Flen1)
 	matches := make([]Selection, length)
-	for i, value := range unsafe.Slice(buffer.ptr, length) {
+	for i, value := range unsafe.Slice((*vt.GhosttySelection)(ptr), length) {
 		matches[i] = selectionFromC(value)
 	}
 	return matches, nil
 }
 
-// set writes one search option.
-func (s *Search) set(option C.GhosttySearchOption, value unsafe.Pointer) error {
-	return resultError(C.ghostty_search_set(s.ptr, option, value))
+// searchGet reads one search data field of C type T. The value is read into
+// TLS stack memory, because the translated code must not write through a
+// pointer to a Go variable.
+func searchGet[T any](s *Search, data SearchData) (T, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	var zero T
+	n := int(unsafe.Sizeof(zero))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	if err := s.get(tls, data, p); err != nil {
+		return zero, err
+	}
+	return *(*T)(unsafe.Pointer(p)), nil
 }
 
-// get reads one search data field.
-func (s *Search) get(data SearchData, value unsafe.Pointer) error {
-	return resultError(C.ghostty_search_get(
+// set writes one search option. value is the C address of the option
+// value, or 0.
+func (s *Search) set(tls *libc.TLS, option vt.GhosttySearchOption, value uintptr) error {
+	return resultError(vt.Xghostty_search_set(tls, s.ptr, option, value))
+}
+
+// get reads one search data field into the C memory at value.
+func (s *Search) get(tls *libc.TLS, data SearchData, value uintptr) error {
+	return resultError(vt.Xghostty_search_get(
+		tls,
 		s.ptr,
-		C.GhosttySearchData(data),
+		vt.GhosttySearchData(data),
 		value,
 	))
 }

@@ -1,181 +1,13 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-#include "go_io.h"
-
-// Returning small result structs by value keeps cgo from forcing every C out
-// parameter onto the Go heap. These are binding-only adapters; the underlying
-// libghostty functions and ownership rules remain unchanged.
-typedef struct {
-	GhosttyResult result;
-	uint8_t* ptr;
-	size_t len;
-} ghostty_go_snapshot_encode_alloc_result;
-
-static inline ghostty_go_snapshot_encode_alloc_result
-ghostty_go_snapshot_encode_alloc(GhosttyTerminal terminal) {
-	ghostty_go_snapshot_encode_alloc_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.ptr = NULL,
-		.len = 0,
-	};
-	out.result = ghostty_snapshot_encode_alloc(
-		terminal,
-		NULL,
-		&out.ptr,
-		&out.len);
-	return out;
-}
-
-typedef struct {
-	GhosttyResult result;
-	size_t written;
-} ghostty_go_snapshot_encode_buf_result;
-
-static inline ghostty_go_snapshot_encode_buf_result
-ghostty_go_snapshot_encode_buf(
-	GhosttyTerminal terminal,
-	uint8_t* buf,
-	size_t len
-) {
-	ghostty_go_snapshot_encode_buf_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.written = 0,
-	};
-	out.result = ghostty_snapshot_encode_buf(
-		terminal,
-		buf,
-		len,
-		&out.written);
-	return out;
-}
-
-typedef struct {
-	GhosttyResult result;
-	GhosttySnapshotDecoder decoder;
-} ghostty_go_snapshot_decoder_result;
-
-static inline ghostty_go_snapshot_decoder_result
-ghostty_go_snapshot_decoder_new(uintptr_t userdata) {
-	ghostty_go_snapshot_decoder_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.decoder = NULL,
-	};
-	GhosttyReader reader = {
-		.read = ghostty_go_reader_trampoline,
-		.userdata = (void*)userdata,
-	};
-	out.result = ghostty_snapshot_decoder_new(NULL, &out.decoder, reader);
-	return out;
-}
-
-static inline GhosttyResult ghostty_go_snapshot_encode(
-	GhosttyTerminal terminal,
-	uintptr_t userdata
-) {
-	return ghostty_snapshot_encode(terminal, ghostty_go_writer(userdata));
-}
-
-static inline ghostty_go_snapshot_decoder_result
-ghostty_go_snapshot_decoder_new_buf(const uint8_t* ptr, size_t len) {
-	ghostty_go_snapshot_decoder_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.decoder = NULL,
-	};
-	out.result = ghostty_snapshot_decoder_new_buf(
-		NULL,
-		&out.decoder,
-		ptr,
-		len);
-	return out;
-}
-
-typedef struct {
-	GhosttyResult result;
-	GhosttyTerminal terminal;
-} ghostty_go_snapshot_decode_result;
-
-static inline ghostty_go_snapshot_decode_result
-ghostty_go_snapshot_decoder_ready(GhosttySnapshotDecoder decoder) {
-	ghostty_go_snapshot_decode_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.terminal = NULL,
-	};
-	out.result = ghostty_snapshot_decoder_ready(decoder, &out.terminal);
-	return out;
-}
-
-static inline ghostty_go_snapshot_decode_result
-ghostty_go_snapshot_decoder_decode(GhosttySnapshotDecoder decoder) {
-	ghostty_go_snapshot_decode_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.terminal = NULL,
-	};
-	out.result = ghostty_snapshot_decoder_decode(decoder, &out.terminal);
-	return out;
-}
-
-// ghostty_go_snapshot_decoder_progress reads every progress value that
-// applies to the most recently decoded record in one cgo call. Which values
-// exist depends on the progress kind, so a get_multi call with a fixed list
-// of keys would fail for one kind or the other.
-typedef struct {
-	GhosttyResult result;
-	GhosttySnapshotDecoderProgressKind kind;
-	GhosttyTerminalScreen screen;
-	size_t rows;
-	uint32_t remaining;
-	uint32_t image_id;
-	uint32_t image_frame;
-	size_t image_bytes;
-} ghostty_go_snapshot_decoder_progress_result;
-
-static inline ghostty_go_snapshot_decoder_progress_result
-ghostty_go_snapshot_decoder_progress(GhosttySnapshotDecoder decoder) {
-	ghostty_go_snapshot_decoder_progress_result out = {0};
-	out.result = ghostty_snapshot_decoder_get(
-		decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND, &out.kind);
-	if (out.result != GHOSTTY_SUCCESS) return out;
-	out.result = ghostty_snapshot_decoder_get(
-		decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN, &out.screen);
-	if (out.result != GHOSTTY_SUCCESS) return out;
-
-	switch (out.kind) {
-	case GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE:
-		out.result = ghostty_snapshot_decoder_get(
-			decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS, &out.rows);
-		if (out.result != GHOSTTY_SUCCESS) return out;
-		out.result = ghostty_snapshot_decoder_get(
-			decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING, &out.remaining);
-		return out;
-
-	case GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE:
-		out.result = ghostty_snapshot_decoder_get(
-			decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_ID, &out.image_id);
-		if (out.result != GHOSTTY_SUCCESS) return out;
-		out.result = ghostty_snapshot_decoder_get(
-			decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_FRAME, &out.image_frame);
-		if (out.result != GHOSTTY_SUCCESS) return out;
-		out.result = ghostty_snapshot_decoder_get(
-			decoder, GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES, &out.image_bytes);
-		return out;
-
-	default:
-		// A newer library may add more progress kinds. Report the kind
-		// and screen, and leave the kind-specific values zero.
-		return out;
-	}
-}
-*/
-import "C"
-
 import (
 	"errors"
 	"io"
 	"runtime"
-	"runtime/cgo"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // SnapshotDecoderOption identifies a configurable snapshot decoder option.
@@ -187,21 +19,21 @@ const (
 	// continuation the decoder will accept (size_t). When continuation
 	// retention is enabled, this is also the tracking limit on the returned
 	// terminal.
-	SnapshotDecoderOptionMaxContinuationBytes SnapshotDecoderOption = C.GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES
+	SnapshotDecoderOptionMaxContinuationBytes SnapshotDecoderOption = vt.GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES
 
 	// SnapshotDecoderOptionRetainContinuation controls whether the returned
 	// terminal retains the decoded continuation (bool).
-	SnapshotDecoderOptionRetainContinuation SnapshotDecoderOption = C.GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION
+	SnapshotDecoderOptionRetainContinuation SnapshotDecoderOption = vt.GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION
 
 	// SnapshotDecoderOptionCompressHistory controls whether the decoder
 	// compresses scrollback as it restores it (bool). See
 	// [SnapshotDecoder.SetCompressHistory].
-	SnapshotDecoderOptionCompressHistory SnapshotDecoderOption = C.GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY
+	SnapshotDecoderOptionCompressHistory SnapshotDecoderOption = vt.GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY
 
 	// SnapshotDecoderOptionKittyImageStorageLimit is the maximum number of
 	// bytes of Kitty graphics images kept for each restored screen
 	// (uint64_t). See [SnapshotDecoder.SetKittyImageStorageLimit].
-	SnapshotDecoderOptionKittyImageStorageLimit SnapshotDecoderOption = C.GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT
+	SnapshotDecoderOptionKittyImageStorageLimit SnapshotDecoderOption = vt.GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT
 )
 
 // SnapshotDecoderProgressKind is the kind of record that the most recent
@@ -213,12 +45,12 @@ const (
 	// SnapshotDecoderProgressKindPage is a page of scrollback history,
 	// along with the Kitty graphics placements on that page. The Rows and
 	// Remaining fields of [SnapshotDecoderProgress] describe it.
-	SnapshotDecoderProgressKindPage SnapshotDecoderProgressKind = C.GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE
+	SnapshotDecoderProgressKindPage SnapshotDecoderProgressKind = vt.GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE
 
 	// SnapshotDecoderProgressKindImage is the pixel data of one Kitty
 	// graphics image or animation frame. The ImageID, ImageFrame, and
 	// ImageBytes fields of [SnapshotDecoderProgress] describe it.
-	SnapshotDecoderProgressKindImage SnapshotDecoderProgressKind = C.GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE
+	SnapshotDecoderProgressKindImage SnapshotDecoderProgressKind = vt.GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE
 )
 
 // SnapshotDecoderData identifies a data field available from a
@@ -228,97 +60,97 @@ type SnapshotDecoderData int
 
 const (
 	// SnapshotDecoderDataInvalid is an invalid or sentinel query.
-	SnapshotDecoderDataInvalid SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_INVALID
+	SnapshotDecoderDataInvalid SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_INVALID
 
 	// SnapshotDecoderDataMaxContinuationBytes is the decoder's current
 	// continuation input limit (size_t).
-	SnapshotDecoderDataMaxContinuationBytes SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_CONTINUATION_BYTES
+	SnapshotDecoderDataMaxContinuationBytes SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_CONTINUATION_BYTES
 
 	// SnapshotDecoderDataSourceOffset is the number of source bytes consumed
 	// so far (size_t).
-	SnapshotDecoderDataSourceOffset SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_SOURCE_OFFSET
+	SnapshotDecoderDataSourceOffset SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_SOURCE_OFFSET
 
 	// SnapshotDecoderDataHistoryRowsPrimary is the complete logical primary
 	// screen history extent (uint64_t).
-	SnapshotDecoderDataHistoryRowsPrimary SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_PRIMARY
+	SnapshotDecoderDataHistoryRowsPrimary SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_PRIMARY
 
 	// SnapshotDecoderDataHistoryRowsAlternate is the complete logical
 	// alternate screen history extent (uint64_t).
-	SnapshotDecoderDataHistoryRowsAlternate SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_ALTERNATE
+	SnapshotDecoderDataHistoryRowsAlternate SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_ALTERNATE
 
 	// SnapshotDecoderDataProgressScreen is the screen that the most recently
 	// decoded history page or image belongs to (GhosttyTerminalScreen).
-	SnapshotDecoderDataProgressScreen SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN
+	SnapshotDecoderDataProgressScreen SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN
 
 	// SnapshotDecoderDataProgressRows is the number of rows prepended by the
 	// most recently decoded history page (size_t). It is only available
 	// for [SnapshotDecoderProgressKindPage].
-	SnapshotDecoderDataProgressRows SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS
+	SnapshotDecoderDataProgressRows SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS
 
 	// SnapshotDecoderDataProgressRemaining is the number of page records
 	// remaining in the current screen's history sequence (uint32_t). It is
 	// only available for [SnapshotDecoderProgressKindPage].
-	SnapshotDecoderDataProgressRemaining SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING
+	SnapshotDecoderDataProgressRemaining SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING
 
 	// SnapshotDecoderDataRetainContinuation reports whether continuation
 	// tracking is retained on returned terminals (bool).
-	SnapshotDecoderDataRetainContinuation SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION
+	SnapshotDecoderDataRetainContinuation SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION
 
 	// SnapshotDecoderDataCompressHistory reports whether the decoder
 	// compresses scrollback as it restores it (bool). See
 	// [SnapshotDecoder.SetCompressHistory].
-	SnapshotDecoderDataCompressHistory SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_COMPRESS_HISTORY
+	SnapshotDecoderDataCompressHistory SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_COMPRESS_HISTORY
 
 	// SnapshotDecoderDataKittyImageStorageLimit is the maximum number of
 	// bytes of Kitty graphics images kept for each restored screen
 	// (uint64_t). See [SnapshotDecoder.SetKittyImageStorageLimit].
-	SnapshotDecoderDataKittyImageStorageLimit SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGE_STORAGE_LIMIT
+	SnapshotDecoderDataKittyImageStorageLimit SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGE_STORAGE_LIMIT
 
 	// SnapshotDecoderDataProgressKind is the kind of record that the most
 	// recent successful call to Next decoded
 	// (GhosttySnapshotDecoderProgressKind). It is available whenever
 	// [SnapshotDecoderDataProgressScreen] is.
-	SnapshotDecoderDataProgressKind SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND
+	SnapshotDecoderDataProgressKind SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND
 
 	// SnapshotDecoderDataProgressImageID is the ID of the Kitty graphics
 	// image whose pixel data the most recent call to Next decoded
 	// (uint32_t). It is only available for
 	// [SnapshotDecoderProgressKindImage].
-	SnapshotDecoderDataProgressImageID SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_ID
+	SnapshotDecoderDataProgressImageID SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_ID
 
 	// SnapshotDecoderDataProgressImageFrame is the frame number of that
 	// pixel data (uint32_t). Frame 1 is the image itself, and frames 2 and
 	// up are animation frames. It is only available for
 	// [SnapshotDecoderProgressKindImage].
-	SnapshotDecoderDataProgressImageFrame SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_FRAME
+	SnapshotDecoderDataProgressImageFrame SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_FRAME
 
 	// SnapshotDecoderDataProgressImageBytes is the number of bytes of pixel
 	// data that the most recent call to Next added to its image (size_t).
 	// Zero means the data was read but discarded. It is only available for
 	// [SnapshotDecoderProgressKindImage].
-	SnapshotDecoderDataProgressImageBytes SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES
+	SnapshotDecoderDataProgressImageBytes SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES
 
 	// SnapshotDecoderDataKittyImagesPrimary is the number of Kitty graphics
 	// images restored on the primary screen (uint32_t). See
 	// [SnapshotDecoder.KittyImageCount].
-	SnapshotDecoderDataKittyImagesPrimary SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_PRIMARY
+	SnapshotDecoderDataKittyImagesPrimary SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_PRIMARY
 
 	// SnapshotDecoderDataKittyImagesAlternate is the number of Kitty
 	// graphics images restored on the alternate screen (uint32_t). See
 	// [SnapshotDecoder.KittyImageCount].
-	SnapshotDecoderDataKittyImagesAlternate SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_ALTERNATE
+	SnapshotDecoderDataKittyImagesAlternate SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_ALTERNATE
 
 	// SnapshotDecoderDataKittyPendingBytesPrimary is the number of bytes of
 	// Kitty graphics pixel data still to come for the primary screen when
 	// Ready returned (uint64_t). See
 	// [SnapshotDecoder.KittyImagePendingBytes].
-	SnapshotDecoderDataKittyPendingBytesPrimary SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY
+	SnapshotDecoderDataKittyPendingBytesPrimary SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY
 
 	// SnapshotDecoderDataKittyPendingBytesAlternate is the number of bytes
 	// of Kitty graphics pixel data still to come for the alternate screen
 	// when Ready returned (uint64_t). See
 	// [SnapshotDecoder.KittyImagePendingBytes].
-	SnapshotDecoderDataKittyPendingBytesAlternate SnapshotDecoderData = C.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_ALTERNATE
+	SnapshotDecoderDataKittyPendingBytesAlternate SnapshotDecoderData = vt.GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_ALTERNATE
 )
 
 // SnapshotDecoder incrementally decodes and validates one terminal
@@ -329,27 +161,29 @@ const (
 // returned terminal.
 // C: GhosttySnapshotDecoder
 type SnapshotDecoder struct {
-	ptr C.GhosttySnapshotDecoder
+	ptr uintptr
 
 	// reader is retained for the lifetime of a callback-backed decoder because
 	// the C decoder stores its GhosttyReader descriptor by value.
 	reader *ghosttyReaderBridge
 
 	// sourceBytes and sourcePin keep the zero-copy input used by
-	// NewSnapshotDecoderBytes alive, immovable, and therefore legal for C to
-	// retain across calls. The pin is released at FINISH or decoder destruction.
+	// NewSnapshotDecoderBytes alive, immovable, and therefore legal for
+	// libghostty to retain across calls. The pin is released at FINISH or
+	// decoder destruction.
 	sourceBytes  []byte
 	sourcePin    runtime.Pinner
 	sourcePinned bool
 
-	// sourcePtr is the C-owned input used by NewSnapshotDecoderBytesCopy. C
-	// retains this borrowed pointer until FINISH or decoder destruction.
+	// sourcePtr is the C-owned input used by NewSnapshotDecoderBytesCopy.
+	// libghostty retains this borrowed pointer until FINISH or decoder
+	// destruction.
 	sourcePtr unsafe.Pointer
 	sourceLen uintptr
 }
 
 // snapshotReaderDecoder stores a decoder and its reader bridge in one
-// allocation. The bridge remains separately addressable for use as C callback
+// allocation. The bridge remains separately addressable for use as callback
 // data.
 type snapshotReaderDecoder struct {
 	decoder SnapshotDecoder
@@ -362,13 +196,25 @@ type snapshotReaderDecoder struct {
 // avoid the result allocation and copy.
 // C: ghostty_snapshot_encode_alloc
 func (t *Terminal) Snapshot() ([]byte, error) {
-	result := C.ghostty_go_snapshot_encode_alloc(t.ptr)
-	if err := resultError(result.result); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// Two out-parameters: the buffer pointer and its length.
+	const n = 2 * int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	outPtr := out
+	outLen := out + unsafe.Sizeof(uintptr(0))
+	*(*uintptr)(unsafe.Pointer(outPtr)) = 0
+	*(*uint64)(unsafe.Pointer(outLen)) = 0
+	if err := resultError(vt.Xghostty_snapshot_encode_alloc(tls, t.ptr, 0, outPtr, outLen)); err != nil {
 		return nil, err
 	}
-	defer C.ghostty_free(nil, result.ptr, result.len)
+	ptr := *(*uintptr)(unsafe.Pointer(outPtr))
+	size := *(*uint64)(unsafe.Pointer(outLen))
+	defer vt.Xghostty_free(tls, 0, ptr, size)
 
-	length, valid := ghosttySizeToInt(result.len)
+	length, valid := ghosttySizeToInt(size)
 	if !valid {
 		return nil, &Error{Result: ResultLimitExceeded}
 	}
@@ -376,9 +222,9 @@ func (t *Terminal) Snapshot() ([]byte, error) {
 		return nil, nil
 	}
 
-	out := make([]byte, length)
-	copy(out, unsafe.Slice((*byte)(unsafe.Pointer(result.ptr)), length))
-	return out, nil
+	outBytes := make([]byte, length)
+	copy(outBytes, unsafe.Slice((*byte)(unsafe.Pointer(ptr)), length))
+	return outBytes, nil
 }
 
 // SnapshotBuf encodes a complete terminal snapshot into buf and returns the
@@ -386,21 +232,32 @@ func (t *Terminal) Snapshot() ([]byte, error) {
 // the required capacity and the error has result [ResultOutOfSpace].
 // C: ghostty_snapshot_encode_buf
 func (t *Terminal) SnapshotBuf(buf []byte) (int, error) {
-	var ptr *C.uint8_t
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var ptr uintptr
 	if len(buf) > 0 {
-		ptr = (*C.uint8_t)(unsafe.Pointer(&buf[0]))
+		addr, unpin := pinBytes(buf)
+		defer unpin()
+		ptr = addr
 	}
 
-	result := C.ghostty_go_snapshot_encode_buf(
+	const n = int(unsafe.Sizeof(uint64(0)))
+	written := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(written)) = 0
+	result := vt.Xghostty_snapshot_encode_buf(
+		tls,
 		t.ptr,
 		ptr,
-		C.size_t(len(buf)),
+		uint64(len(buf)),
+		written,
 	)
-	length, valid := ghosttySizeToInt(result.written)
+	length, valid := ghosttySizeToInt(*(*uint64)(unsafe.Pointer(written)))
 	if !valid {
 		return 0, &Error{Result: ResultLimitExceeded}
 	}
-	return length, resultError(result.result)
+	return length, resultError(result)
 }
 
 // SnapshotWriteTo encodes a complete terminal snapshot directly to w. The
@@ -414,7 +271,9 @@ func (t *Terminal) SnapshotWriteTo(w io.Writer) (int64, error) {
 	}
 	defer bridge.close()
 
-	result := C.ghostty_go_snapshot_encode(t.ptr, C.uintptr_t(bridge.handle))
+	tls := getTLS()
+	defer putTLS(tls)
+	result := vt.Xghostty_snapshot_encode(tls, t.ptr, bridge.cWriter())
 	return bridge.written, resultErrorWithCallback(result, bridge.err)
 }
 
@@ -428,17 +287,37 @@ func NewSnapshotDecoder(r io.Reader) (*SnapshotDecoder, error) {
 	}
 	holder := &snapshotReaderDecoder{}
 	holder.reader.reader = r
-	holder.reader.handle = cgo.NewHandle(&holder.reader)
+	holder.reader.handle = newHandle(&holder.reader)
 
-	result := C.ghostty_go_snapshot_decoder_new(C.uintptr_t(holder.reader.handle))
-	if err := resultError(result.result); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	result := vt.Xghostty_snapshot_decoder_new(tls, 0, out, holder.reader.cReader())
+	if err := resultError(result); err != nil {
 		holder.reader.close()
 		return nil, err
 	}
 
-	holder.decoder.ptr = result.decoder
+	holder.decoder.ptr = *(*uintptr)(unsafe.Pointer(out))
 	holder.decoder.reader = &holder.reader
 	return &holder.decoder, nil
+}
+
+// snapshotDecoderNewBuf creates a decoder over the C-visible input at ptr.
+func snapshotDecoderNewBuf(ptr uintptr, length uint64) (uintptr, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	if err := resultError(vt.Xghostty_snapshot_decoder_new_buf(tls, 0, out, ptr, length)); err != nil {
+		return 0, err
+	}
+	return *(*uintptr)(unsafe.Pointer(out)), nil
 }
 
 // NewSnapshotDecoderBytes creates a zero-copy snapshot decoder over data. The
@@ -449,21 +328,21 @@ func NewSnapshotDecoder(r io.Reader) (*SnapshotDecoder, error) {
 // C: ghostty_snapshot_decoder_new_buf
 func NewSnapshotDecoderBytes(data []byte) (*SnapshotDecoder, error) {
 	d := &SnapshotDecoder{sourceBytes: data}
-	var source *C.uint8_t
+	var source uintptr
 	if len(data) > 0 {
 		d.sourcePin.Pin(&data[0])
 		d.sourcePinned = true
-		source = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+		source = uintptr(unsafe.Pointer(&data[0]))
 	}
 
-	result := C.ghostty_go_snapshot_decoder_new_buf(source, C.size_t(len(data)))
+	ptr, err := snapshotDecoderNewBuf(source, uint64(len(data)))
 	runtime.KeepAlive(data)
-	if err := resultError(result.result); err != nil {
+	if err != nil {
 		d.releaseSource()
 		return nil, err
 	}
 
-	d.ptr = result.decoder
+	d.ptr = ptr
 	return d, nil
 }
 
@@ -483,17 +362,14 @@ func NewSnapshotDecoderBytesCopy(data []byte) (*SnapshotDecoder, error) {
 		copy(unsafe.Slice((*byte)(source), len(data)), data)
 	}
 
-	result := C.ghostty_go_snapshot_decoder_new_buf(
-		(*C.uint8_t)(source),
-		C.size_t(length),
-	)
-	if err := resultError(result.result); err != nil {
+	ptr, err := snapshotDecoderNewBuf(uintptr(source), uint64(length))
+	if err != nil {
 		Free(source, length)
 		return nil, err
 	}
 
 	return &SnapshotDecoder{
-		ptr:       result.decoder,
+		ptr:       ptr,
 		sourcePtr: source,
 		sourceLen: length,
 	}, nil
@@ -503,12 +379,14 @@ func NewSnapshotDecoderBytesCopy(data []byte) (*SnapshotDecoder, error) {
 // source buffer. It does not close a terminal returned by Ready or Decode.
 // C: ghostty_snapshot_decoder_free
 func (d *SnapshotDecoder) Close() {
-	if d == nil || d.ptr == nil {
+	if d == nil || d.ptr == 0 {
 		return
 	}
 
-	C.ghostty_snapshot_decoder_free(d.ptr)
-	d.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_snapshot_decoder_free(tls, d.ptr)
+	d.ptr = 0
 	d.reader.close()
 	d.reader = nil
 	d.releaseSource()
@@ -530,6 +408,18 @@ func (d *SnapshotDecoder) releaseSource() {
 	}
 }
 
+// setSnapshotDecoderScalar writes one decoder option whose value has type T.
+func setSnapshotDecoderScalar[T any](d *SnapshotDecoder, option vt.GhosttySnapshotDecoderOption, v T) error {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	n := int(unsafe.Sizeof(v))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*T)(unsafe.Pointer(p)) = v
+	return resultError(vt.Xghostty_snapshot_decoder_set(tls, d.ptr, option, p))
+}
+
 // SetMaxContinuationBytes sets the largest non-ground VT continuation the
 // decoder will accept. When [SnapshotDecoder.SetRetainContinuation] is true,
 // this also becomes the continuation tracking limit on the returned terminal.
@@ -537,12 +427,7 @@ func (d *SnapshotDecoder) releaseSource() {
 // whose parser and UTF-8 decoder are at ground and leaves tracking disabled.
 // C: ghostty_snapshot_decoder_set
 func (d *SnapshotDecoder) SetMaxContinuationBytes(limit uint) error {
-	v := C.size_t(limit)
-	return resultError(C.ghostty_snapshot_decoder_set(
-		d.ptr,
-		C.GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES,
-		unsafe.Pointer(&v),
-	))
+	return setSnapshotDecoderScalar(d, vt.GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES, uint64(limit))
 }
 
 // SetRetainContinuation controls whether the returned terminal retains the
@@ -551,12 +436,7 @@ func (d *SnapshotDecoder) SetMaxContinuationBytes(limit uint) error {
 // on the returned terminal. It may only be called before decoding begins.
 // C: ghostty_snapshot_decoder_set
 func (d *SnapshotDecoder) SetRetainContinuation(retain bool) error {
-	v := C.bool(retain)
-	return resultError(C.ghostty_snapshot_decoder_set(
-		d.ptr,
-		C.GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
-		unsafe.Pointer(&v),
-	))
+	return setSnapshotDecoderScalar(d, vt.GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION, cBool(retain))
 }
 
 // SetCompressHistory controls whether the decoder compresses scrollback as
@@ -583,12 +463,7 @@ func (d *SnapshotDecoder) SetRetainContinuation(retain bool) error {
 // scrollback compression, it is accepted and has no effect.
 // C: ghostty_snapshot_decoder_set
 func (d *SnapshotDecoder) SetCompressHistory(compress bool) error {
-	v := C.bool(compress)
-	return resultError(C.ghostty_snapshot_decoder_set(
-		d.ptr,
-		C.GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY,
-		unsafe.Pointer(&v),
-	))
+	return setSnapshotDecoderScalar(d, vt.GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY, cBool(compress))
 }
 
 // SetKittyImageStorageLimit sets the maximum number of bytes of Kitty
@@ -603,12 +478,23 @@ func (d *SnapshotDecoder) SetCompressHistory(compress bool) error {
 // [Terminal.SetKittyImageStorageLimit] on the restored terminal.
 // C: ghostty_snapshot_decoder_set
 func (d *SnapshotDecoder) SetKittyImageStorageLimit(limit uint64) error {
-	v := C.uint64_t(limit)
-	return resultError(C.ghostty_snapshot_decoder_set(
-		d.ptr,
-		C.GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT,
-		unsafe.Pointer(&v),
-	))
+	return setSnapshotDecoderScalar(d, vt.GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT, limit)
+}
+
+// decodeTerminal runs fn, a decoder call that writes a terminal handle to
+// its out-parameter, and wraps the handle.
+func (d *SnapshotDecoder) decodeTerminal(fn func(tls *libc.TLS, out uintptr) vt.GhosttyResult) (*Terminal, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	if err := d.decodeError(fn(tls, out)); err != nil {
+		return nil, err
+	}
+	return terminalFromC(*(*uintptr)(unsafe.Pointer(out)), TerminalConfig{}), nil
 }
 
 // Ready decodes and validates the renderable snapshot prefix. The
@@ -623,11 +509,9 @@ func (d *SnapshotDecoder) SetKittyImageStorageLimit(limit uint64) error {
 // draws the image on its next frame.
 // C: ghostty_snapshot_decoder_ready
 func (d *SnapshotDecoder) Ready() (*Terminal, error) {
-	result := C.ghostty_go_snapshot_decoder_ready(d.ptr)
-	if err := d.decodeError(result.result); err != nil {
-		return nil, err
-	}
-	return terminalFromC(result.terminal, TerminalConfig{}), nil
+	return d.decodeTerminal(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_snapshot_decoder_ready(tls, d.ptr, out)
+	})
 }
 
 // Next decodes and validates one record. A record is either a page of
@@ -647,11 +531,13 @@ func (d *SnapshotDecoder) Ready() (*Terminal, error) {
 // before returning, unless the page is on screen.
 // C: ghostty_snapshot_decoder_next
 func (d *SnapshotDecoder) Next() (bool, error) {
-	result := C.ghostty_snapshot_decoder_next(d.ptr)
+	tls := getTLS()
+	defer putTLS(tls)
+	result := vt.Xghostty_snapshot_decoder_next(tls, d.ptr)
 	switch result {
-	case C.GHOSTTY_SUCCESS:
+	case vt.GHOSTTY_SUCCESS:
 		return true, nil
-	case C.GHOSTTY_NO_VALUE:
+	case vt.GHOSTTY_NO_VALUE:
 		d.releaseSource()
 		return false, nil
 	default:
@@ -669,23 +555,53 @@ func (d *SnapshotDecoder) Next() (bool, error) {
 // told about it. See [RenderHoldFunc].
 // C: ghostty_snapshot_decoder_decode
 func (d *SnapshotDecoder) Decode() (*Terminal, error) {
-	result := C.ghostty_go_snapshot_decoder_decode(d.ptr)
-	if err := d.decodeError(result.result); err != nil {
+	t, err := d.decodeTerminal(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_snapshot_decoder_decode(tls, d.ptr, out)
+	})
+	if err != nil {
 		return nil, err
 	}
 	d.releaseSource()
-	return terminalFromC(result.terminal, TerminalConfig{}), nil
+	return t, nil
 }
 
 // Get reads a raw decoder data field into value. The pointer type must match
 // the documented type for data; prefer the typed helpers when possible.
+//
+// value must point at memory that does not move: C memory, or Go memory
+// that is pinned with [runtime.Pinner] for the duration of the call.
 // C: ghostty_snapshot_decoder_get
 func (d *SnapshotDecoder) Get(data SnapshotDecoderData, value unsafe.Pointer) error {
-	return resultError(C.ghostty_snapshot_decoder_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_snapshot_decoder_get(
+		tls,
 		d.ptr,
-		C.GhosttySnapshotDecoderData(data),
-		value,
+		vt.GhosttySnapshotDecoderData(data),
+		uintptr(value),
 	))
+}
+
+// getSnapshotDecoderScalar reads one decoder data field whose value has
+// type T.
+func getSnapshotDecoderScalar[T any](d *SnapshotDecoder, data SnapshotDecoderData) (T, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var v T
+	n := int(unsafe.Sizeof(v))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	if err := resultError(vt.Xghostty_snapshot_decoder_get(
+		tls,
+		d.ptr,
+		vt.GhosttySnapshotDecoderData(data),
+		p,
+	)); err != nil {
+		return v, err
+	}
+	return *(*T)(unsafe.Pointer(p)), nil
 }
 
 // GetMulti reads several raw decoder data fields in one C call. Each value
@@ -702,31 +618,35 @@ func (d *SnapshotDecoder) GetMulti(keys []SnapshotDecoderData, values []unsafe.P
 
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttySnapshotDecoderData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttySnapshotDecoderData](&args, keys, values)
 	if err != nil {
 		return 0, err
 	}
 	defer args.free()
-	var cWritten C.size_t
-	err = resultError(C.ghostty_snapshot_decoder_get_multi(
+
+	tls := getTLS()
+	defer putTLS(tls)
+	const n = int(unsafe.Sizeof(uint64(0)))
+	cWritten := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(cWritten)) = 0
+	err = resultError(vt.Xghostty_snapshot_decoder_get_multi(
+		tls,
 		d.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		&cWritten,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		cWritten,
 	))
-	return int(cWritten), err
+	return int(*(*uint64)(unsafe.Pointer(cWritten))), err
 }
 
 // MaxContinuationBytes returns the decoder's current continuation input limit.
 // When [SnapshotDecoder.RetainContinuation] is true, this is also the tracking
 // limit applied to the returned terminal.
 func (d *SnapshotDecoder) MaxContinuationBytes() (uint, error) {
-	var value C.size_t
-	if err := d.Get(
-		SnapshotDecoderDataMaxContinuationBytes,
-		unsafe.Pointer(&value),
-	); err != nil {
+	value, err := getSnapshotDecoderScalar[uint64](d, SnapshotDecoderDataMaxContinuationBytes)
+	if err != nil {
 		return 0, err
 	}
 	return uint(value), nil
@@ -735,34 +655,28 @@ func (d *SnapshotDecoder) MaxContinuationBytes() (uint, error) {
 // CompressHistory reports whether the decoder compresses scrollback as it
 // restores it. See [SnapshotDecoder.SetCompressHistory].
 func (d *SnapshotDecoder) CompressHistory() (bool, error) {
-	var value C.bool
-	if err := d.Get(
-		SnapshotDecoderDataCompressHistory,
-		unsafe.Pointer(&value),
-	); err != nil {
+	value, err := getSnapshotDecoderScalar[uint8](d, SnapshotDecoderDataCompressHistory)
+	if err != nil {
 		return false, err
 	}
-	return value != C.bool(false), nil
+	return value != 0, nil
 }
 
 // RetainContinuation reports whether decoded continuation tracking will be
 // retained on terminals returned by Ready or Decode.
 func (d *SnapshotDecoder) RetainContinuation() (bool, error) {
-	var value C.bool
-	if err := d.Get(
-		SnapshotDecoderDataRetainContinuation,
-		unsafe.Pointer(&value),
-	); err != nil {
+	value, err := getSnapshotDecoderScalar[uint8](d, SnapshotDecoderDataRetainContinuation)
+	if err != nil {
 		return false, err
 	}
-	return value != C.bool(false), nil
+	return value != 0, nil
 }
 
 // SourceOffset returns the number of snapshot source bytes consumed so far.
 // At FINISH it identifies the first byte after the snapshot.
 func (d *SnapshotDecoder) SourceOffset() (uint, error) {
-	var value C.size_t
-	if err := d.Get(SnapshotDecoderDataSourceOffset, unsafe.Pointer(&value)); err != nil {
+	value, err := getSnapshotDecoderScalar[uint64](d, SnapshotDecoderDataSourceOffset)
+	if err != nil {
 		return 0, err
 	}
 	return uint(value), nil
@@ -782,25 +696,14 @@ func (d *SnapshotDecoder) HistoryRows(screen TerminalScreen) (uint64, error) {
 		return 0, &Error{Result: ResultInvalidValue}
 	}
 
-	var value C.uint64_t
-	if err := d.Get(data, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint64(value), nil
+	return getSnapshotDecoderScalar[uint64](d, data)
 }
 
 // KittyImageStorageLimit returns the maximum number of bytes of Kitty
 // graphics images the decoder keeps for each restored screen. See
 // [SnapshotDecoder.SetKittyImageStorageLimit].
 func (d *SnapshotDecoder) KittyImageStorageLimit() (uint64, error) {
-	var value C.uint64_t
-	if err := d.Get(
-		SnapshotDecoderDataKittyImageStorageLimit,
-		unsafe.Pointer(&value),
-	); err != nil {
-		return 0, err
-	}
-	return uint64(value), nil
+	return getSnapshotDecoderScalar[uint64](d, SnapshotDecoderDataKittyImageStorageLimit)
 }
 
 // KittyImageCount returns the number of Kitty graphics images that Ready
@@ -821,11 +724,7 @@ func (d *SnapshotDecoder) KittyImageCount(screen TerminalScreen) (uint32, error)
 		return 0, &Error{Result: ResultInvalidValue}
 	}
 
-	var value C.uint32_t
-	if err := d.Get(data, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint32(value), nil
+	return getSnapshotDecoderScalar[uint32](d, data)
 }
 
 // KittyImagePendingBytes returns the number of bytes of Kitty graphics pixel
@@ -849,18 +748,14 @@ func (d *SnapshotDecoder) KittyImagePendingBytes(screen TerminalScreen) (uint64,
 		return 0, &Error{Result: ResultInvalidValue}
 	}
 
-	var value C.uint64_t
-	if err := d.Get(data, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint64(value), nil
+	return getSnapshotDecoderScalar[uint64](d, data)
 }
 
 // ProgressKind returns the kind of record that the most recent successful
 // call to Next decoded.
 func (d *SnapshotDecoder) ProgressKind() (SnapshotDecoderProgressKind, error) {
-	var value C.GhosttySnapshotDecoderProgressKind
-	if err := d.Get(SnapshotDecoderDataProgressKind, unsafe.Pointer(&value)); err != nil {
+	value, err := getSnapshotDecoderScalar[vt.GhosttySnapshotDecoderProgressKind](d, SnapshotDecoderDataProgressKind)
+	if err != nil {
 		return 0, err
 	}
 	return SnapshotDecoderProgressKind(value), nil
@@ -870,11 +765,7 @@ func (d *SnapshotDecoder) ProgressKind() (SnapshotDecoderProgressKind, error) {
 // data the most recent call to Next decoded. It returns [ErrNoValue] if that
 // record was not [SnapshotDecoderProgressKindImage].
 func (d *SnapshotDecoder) ProgressImageID() (uint32, error) {
-	var value C.uint32_t
-	if err := d.Get(SnapshotDecoderDataProgressImageID, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint32(value), nil
+	return getSnapshotDecoderScalar[uint32](d, SnapshotDecoderDataProgressImageID)
 }
 
 // ProgressImageFrame returns the frame number of the pixel data that the
@@ -882,11 +773,7 @@ func (d *SnapshotDecoder) ProgressImageID() (uint32, error) {
 // 2 and up are animation frames. It returns [ErrNoValue] if that record was
 // not [SnapshotDecoderProgressKindImage].
 func (d *SnapshotDecoder) ProgressImageFrame() (uint32, error) {
-	var value C.uint32_t
-	if err := d.Get(SnapshotDecoderDataProgressImageFrame, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint32(value), nil
+	return getSnapshotDecoderScalar[uint32](d, SnapshotDecoderDataProgressImageFrame)
 }
 
 // ProgressImageBytes returns the number of bytes of pixel data that the most
@@ -898,8 +785,8 @@ func (d *SnapshotDecoder) ProgressImageFrame() (uint32, error) {
 // that has the same ID, when the image did not fit the storage limit, or
 // when its screen no longer exists.
 func (d *SnapshotDecoder) ProgressImageBytes() (uint, error) {
-	var value C.size_t
-	if err := d.Get(SnapshotDecoderDataProgressImageBytes, unsafe.Pointer(&value)); err != nil {
+	value, err := getSnapshotDecoderScalar[uint64](d, SnapshotDecoderDataProgressImageBytes)
+	if err != nil {
 		return 0, err
 	}
 	return uint(value), nil
@@ -908,8 +795,8 @@ func (d *SnapshotDecoder) ProgressImageBytes() (uint, error) {
 // ProgressScreen returns the screen associated with the most recently
 // decoded history page or image belongs to.
 func (d *SnapshotDecoder) ProgressScreen() (TerminalScreen, error) {
-	var value C.GhosttyTerminalScreen
-	if err := d.Get(SnapshotDecoderDataProgressScreen, unsafe.Pointer(&value)); err != nil {
+	value, err := getSnapshotDecoderScalar[vt.GhosttyTerminalScreen](d, SnapshotDecoderDataProgressScreen)
+	if err != nil {
 		return 0, err
 	}
 	return TerminalScreen(value), nil
@@ -920,8 +807,8 @@ func (d *SnapshotDecoder) ProgressScreen() (TerminalScreen, error) {
 // It returns [ErrNoValue] if that record was not
 // [SnapshotDecoderProgressKindPage].
 func (d *SnapshotDecoder) ProgressRows() (uint, error) {
-	var value C.size_t
-	if err := d.Get(SnapshotDecoderDataProgressRows, unsafe.Pointer(&value)); err != nil {
+	value, err := getSnapshotDecoderScalar[uint64](d, SnapshotDecoderDataProgressRows)
+	if err != nil {
 		return 0, err
 	}
 	return uint(value), nil
@@ -931,11 +818,7 @@ func (d *SnapshotDecoder) ProgressRows() (uint, error) {
 // screen's history sequence. It returns [ErrNoValue] if that record was not
 // [SnapshotDecoderProgressKindPage].
 func (d *SnapshotDecoder) ProgressRemaining() (uint32, error) {
-	var value C.uint32_t
-	if err := d.Get(SnapshotDecoderDataProgressRemaining, unsafe.Pointer(&value)); err != nil {
-		return 0, err
-	}
-	return uint32(value), nil
+	return getSnapshotDecoderScalar[uint32](d, SnapshotDecoderDataProgressRemaining)
 }
 
 // SnapshotDecoderProgress describes the record that the most recent
@@ -974,27 +857,70 @@ type SnapshotDecoderProgress struct {
 }
 
 // Progress returns every progress value for the record that the most recent
-// successful call to Next decoded. It reads them all in a single call and
+// successful call to Next decoded. Which values exist depends on the kind, so
+// it reads the kind and screen first and then only the values that apply. It
 // does not allocate, so prefer it to the individual Progress methods.
 func (d *SnapshotDecoder) Progress() (SnapshotDecoderProgress, error) {
-	out := C.ghostty_go_snapshot_decoder_progress(d.ptr)
-	if err := resultError(out.result); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// One 8-byte slot on the C stack serves every value in turn.
+	const n = int(unsafe.Sizeof(uint64(0)))
+	slot := tls.Alloc(n)
+	defer tls.Free(n)
+	get := func(data SnapshotDecoderData) error {
+		*(*uint64)(unsafe.Pointer(slot)) = 0
+		return resultError(vt.Xghostty_snapshot_decoder_get(
+			tls, d.ptr, vt.GhosttySnapshotDecoderData(data), slot))
+	}
+	u32 := func() uint32 { return *(*uint32)(unsafe.Pointer(slot)) }
+	u64 := func() uint64 { return *(*uint64)(unsafe.Pointer(slot)) }
+
+	var out SnapshotDecoderProgress
+	if err := get(SnapshotDecoderDataProgressKind); err != nil {
 		return SnapshotDecoderProgress{}, err
 	}
-	return SnapshotDecoderProgress{
-		Kind:       SnapshotDecoderProgressKind(out.kind),
-		Screen:     TerminalScreen(out.screen),
-		Rows:       uint(out.rows),
-		Remaining:  uint32(out.remaining),
-		ImageID:    uint32(out.image_id),
-		ImageFrame: uint32(out.image_frame),
-		ImageBytes: uint(out.image_bytes),
-	}, nil
+	out.Kind = SnapshotDecoderProgressKind(*(*vt.GhosttySnapshotDecoderProgressKind)(unsafe.Pointer(slot)))
+	if err := get(SnapshotDecoderDataProgressScreen); err != nil {
+		return SnapshotDecoderProgress{}, err
+	}
+	out.Screen = TerminalScreen(*(*vt.GhosttyTerminalScreen)(unsafe.Pointer(slot)))
+
+	switch out.Kind {
+	case SnapshotDecoderProgressKindPage:
+		if err := get(SnapshotDecoderDataProgressRows); err != nil {
+			return SnapshotDecoderProgress{}, err
+		}
+		out.Rows = uint(u64())
+		if err := get(SnapshotDecoderDataProgressRemaining); err != nil {
+			return SnapshotDecoderProgress{}, err
+		}
+		out.Remaining = u32()
+
+	case SnapshotDecoderProgressKindImage:
+		if err := get(SnapshotDecoderDataProgressImageID); err != nil {
+			return SnapshotDecoderProgress{}, err
+		}
+		out.ImageID = u32()
+		if err := get(SnapshotDecoderDataProgressImageFrame); err != nil {
+			return SnapshotDecoderProgress{}, err
+		}
+		out.ImageFrame = u32()
+		if err := get(SnapshotDecoderDataProgressImageBytes); err != nil {
+			return SnapshotDecoderProgress{}, err
+		}
+		out.ImageBytes = uint(u64())
+
+	default:
+		// A newer library may add more progress kinds. Report the kind
+		// and screen, and leave the kind-specific values zero.
+	}
+	return out, nil
 }
 
 // decodeError combines GHOSTTY_IO_ERROR with the original Go reader error so
 // callers can inspect both through errors.Is/As.
-func (d *SnapshotDecoder) decodeError(result C.GhosttyResult) error {
+func (d *SnapshotDecoder) decodeError(result vt.GhosttyResult) error {
 	var callbackErr error
 	if d.reader != nil {
 		callbackErr = d.reader.err

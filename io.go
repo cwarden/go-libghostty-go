@@ -3,30 +3,17 @@ package libghostty
 // Synchronous Go I/O adapters for GhosttyReader and GhosttyWriter.
 //
 // libghostty invokes both callbacks only while the originating C API call is
-// active. A cgo.Handle carries the Go reader or writer through C userdata
-// without storing a Go pointer in C memory.
-
-/*
-#include "go_io.h"
-
-// Invoke a borrowed GhosttyWriter function pointer. Cgo cannot call a C
-// function pointer directly, so MIME reader callbacks route writes through
-// this helper.
-static inline bool ghostty_go_writer_write(
-		GhosttyWriter writer,
-		const uint8_t* data,
-		size_t len) {
-	return writer.write(writer.userdata, data, len);
-}
-*/
-import "C"
+// active. A handle (see ccgo.go) carries the Go reader or writer through C
+// userdata without storing a Go pointer in C memory.
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime/cgo"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // MIMEReaderFn streams the requested MIME representation to writer. The MIME
@@ -37,30 +24,40 @@ import (
 // C: GhosttyMimeReaderFn
 type MIMEReaderFn func(mime string, writer io.Writer) error
 
-// ghosttyMIMEReaderBridge owns the cgo handle used by a synchronous
+// ghosttyMIMEReaderBridge owns the handle used by a synchronous
 // GhosttyMimeReader. It also preserves the original Go callback error so the
 // outer operation can expose it through errors.Is and errors.As.
 type ghosttyMIMEReaderBridge struct {
 	reader MIMEReaderFn
-	handle cgo.Handle
+	handle handle
 	err    error
 }
 
-// close releases the MIME reader's cgo handle after C can no longer invoke
+// cMIMEReader returns the C descriptor that routes reads to b.
+func (b *ghosttyMIMEReaderBridge) cMIMEReader() vt.GhosttyMimeReader {
+	return vt.GhosttyMimeReader{
+		Fread:     vt.Fp(goGhosttyMIMEReaderTrampoline),
+		Fuserdata: uintptr(b.handle),
+	}
+}
+
+// close releases the MIME reader's handle after C can no longer invoke
 // the callback.
 func (b *ghosttyMIMEReaderBridge) close() {
 	if b == nil || b.handle == 0 {
 		return
 	}
-	b.handle.Delete()
+	b.handle.delete()
 	b.handle = 0
 	b.reader = nil
 }
 
 // ghosttyMIMEWriter exposes a borrowed GhosttyWriter as an io.Writer for the
-// duration of one MIME reader callback.
+// duration of one MIME reader callback. The writer is called with the TLS of
+// the callback in progress.
 type ghosttyMIMEWriter struct {
-	writer C.GhosttyWriter
+	tls    *libc.TLS
+	writer vt.GhosttyWriter
 	err    error
 }
 
@@ -75,35 +72,42 @@ func (w *ghosttyMIMEWriter) Write(p []byte) (int, error) {
 		return 0, w.err
 	}
 
-	if !bool(C.ghostty_go_writer_write(
-		w.writer,
-		(*C.uint8_t)(unsafe.Pointer(&p[0])),
-		C.size_t(len(p)),
-	)) {
+	data, unpin := pinBytes(p)
+	defer unpin()
+	write := *(*func(*libc.TLS, uintptr, uintptr, uint64) uint8)(unsafe.Pointer(&struct{ uintptr }{w.writer.Fwrite}))
+	if write(w.tls, w.writer.Fuserdata, data, uint64(len(p))) == 0 {
 		w.err = errors.New("ghostty: MIME writer refused write")
 		return 0, w.err
 	}
 	return len(p), nil
 }
 
-// ghosttyReaderBridge owns the cgo handle installed in a GhosttyReader. The
+// ghosttyReaderBridge owns the handle installed in a GhosttyReader. The
 // decoder retains that C descriptor, so this bridge must live until the
 // decoder is closed even though each individual read is synchronous.
 type ghosttyReaderBridge struct {
 	reader     io.Reader
-	handle     cgo.Handle
+	handle     handle
 	err        error
 	pendingErr error
 	eof        bool
 }
 
-// close releases the reader's cgo handle. It must be called only after C can
+// cReader returns the C descriptor that routes reads to b.
+func (b *ghosttyReaderBridge) cReader() vt.GhosttyReader {
+	return vt.GhosttyReader{
+		Fread:     vt.Fp(goGhosttyReaderTrampoline),
+		Fuserdata: uintptr(b.handle),
+	}
+}
+
+// close releases the reader's handle. It must be called only after C can
 // no longer invoke the callback.
 func (b *ghosttyReaderBridge) close() {
 	if b == nil || b.handle == 0 {
 		return
 	}
-	b.handle.Delete()
+	b.handle.delete()
 	b.handle = 0
 	b.reader = nil
 }
@@ -112,14 +116,14 @@ func (b *ghosttyReaderBridge) close() {
 // accepted byte count and the original Go error, if any.
 type ghosttyWriterBridge struct {
 	writer  io.Writer
-	handle  cgo.Handle
+	handle  handle
 	written int64
 	err     error
 }
 
 // newGhosttyWriter builds a writer bridge backed by w. The caller passes the
-// bridge handle to a C helper that constructs the native descriptor, and must
-// close the bridge after the synchronous libghostty operation returns.
+// descriptor from cWriter to libghostty, and must close the bridge after the
+// synchronous libghostty operation returns.
 func newGhosttyWriter(w io.Writer) (*ghosttyWriterBridge, error) {
 	b := &ghosttyWriterBridge{}
 	if err := b.reset(w); err != nil {
@@ -128,7 +132,7 @@ func newGhosttyWriter(w io.Writer) (*ghosttyWriterBridge, error) {
 	return b, nil
 }
 
-// reset prepares b to write to w. It reuses the existing integer handle when
+// reset prepares b to write to w. It reuses the existing handle when
 // possible. Calls using the same bridge must be serialized.
 func (b *ghosttyWriterBridge) reset(w io.Writer) error {
 	if w == nil {
@@ -139,153 +143,166 @@ func (b *ghosttyWriterBridge) reset(w io.Writer) error {
 	b.written = 0
 	b.err = nil
 	if b.handle == 0 {
-		b.handle = cgo.NewHandle(b)
+		b.handle = newHandle(b)
 	}
 	return nil
 }
 
-// close releases the writer's cgo handle.
+// cWriter returns the C descriptor that routes writes to b.
+func (b *ghosttyWriterBridge) cWriter() vt.GhosttyWriter {
+	return vt.GhosttyWriter{
+		Fwrite:    vt.Fp(goGhosttyWriterTrampoline),
+		Fuserdata: uintptr(b.handle),
+	}
+}
+
+// close releases the writer's handle.
 func (b *ghosttyWriterBridge) close() {
 	if b == nil || b.handle == 0 {
 		return
 	}
-	b.handle.Delete()
+	b.handle.delete()
 	b.handle = 0
 	b.writer = nil
 }
 
 // resultErrorWithCallback preserves libghostty's I/O result while also
 // exposing the original Go reader or writer error through errors.Is/As.
-func resultErrorWithCallback(result C.GhosttyResult, callbackErr error) error {
+func resultErrorWithCallback(result vt.GhosttyResult, callbackErr error) error {
 	err := resultError(result)
-	if result != C.GHOSTTY_IO_ERROR || callbackErr == nil {
+	if result != vt.GHOSTTY_IO_ERROR || callbackErr == nil {
 		return err
 	}
 	return errors.Join(err, callbackErr)
 }
 
-//export goGhosttyMIMEReaderTrampoline
+// goGhosttyMIMEReaderTrampoline is the GhosttyMimeReaderFn installed by
+// cMIMEReader.
 func goGhosttyMIMEReaderTrampoline(
-	userdata C.uintptr_t,
-	mime C.GhosttyString,
-	writer C.GhosttyWriter,
-) (ok C.bool) {
-	b := cgo.Handle(userdata).Value().(*ghosttyMIMEReaderBridge)
+	tls *libc.TLS,
+	userdata uintptr,
+	mime vt.GhosttyString,
+	writer vt.GhosttyWriter,
+) (ok uint8) {
+	b := handle(userdata).value().(*ghosttyMIMEReaderBridge)
 
-	// A panic must never unwind across the C boundary. Preserve it as the
-	// callback error and make the originating operation return IO_ERROR.
+	// A panic must never unwind into libghostty, which cannot recover from
+	// it. Preserve it as the callback error and make the originating
+	// operation return IO_ERROR.
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			b.err = fmt.Errorf("ghostty MIME reader panic: %v", recovered)
-			ok = C.bool(false)
+			ok = cFalse
 		}
 	}()
 
 	mimeBytes, valid := copyGhosttyString(mime)
 	if !valid {
 		b.err = &Error{Result: ResultInvalidValue}
-		return C.bool(false)
+		return cFalse
 	}
 
-	w := &ghosttyMIMEWriter{writer: writer}
+	w := &ghosttyMIMEWriter{tls: tls, writer: writer}
 	if err := b.reader(string(mimeBytes), w); err != nil {
 		b.err = err
-		return C.bool(false)
+		return cFalse
 	}
 	if w.err != nil {
 		// Treat a writer error as fatal even if a callback accidentally ignored
 		// the error returned by io.Writer.Write.
 		b.err = w.err
-		return C.bool(false)
+		return cFalse
 	}
 
-	return C.bool(true)
+	return cTrue
 }
 
-//export goGhosttyReaderTrampoline
+// goGhosttyReaderTrampoline is the GhosttyReaderFn installed by cReader.
 func goGhosttyReaderTrampoline(
-	userdata C.uintptr_t,
-	buffer *C.uint8_t,
-	capacity C.size_t,
-	outRead *C.size_t,
-) (ok C.bool) {
-	b := cgo.Handle(userdata).Value().(*ghosttyReaderBridge)
-	*outRead = 0
+	_ *libc.TLS,
+	userdata uintptr,
+	buffer uintptr,
+	capacity uint64,
+	outRead uintptr,
+) (ok uint8) {
+	b := handle(userdata).value().(*ghosttyReaderBridge)
+	*(*uint64)(unsafe.Pointer(outRead)) = 0
 
-	// A panic must never unwind across the C boundary. Convert it to the same
+	// A panic must never unwind into libghostty. Convert it to the same
 	// fatal read failure that an ordinary Go reader error would produce.
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			b.err = fmt.Errorf("ghostty reader panic: %v", recovered)
-			ok = C.bool(false)
+			ok = cFalse
 		}
 	}()
 
 	if b.pendingErr != nil {
 		b.err = b.pendingErr
 		b.pendingErr = nil
-		return C.bool(false)
+		return cFalse
 	}
 	if b.eof {
-		return C.bool(true)
+		return cTrue
 	}
 
 	length, valid := ghosttySizeToInt(capacity)
-	if !valid || length <= 0 || buffer == nil {
+	if !valid || length <= 0 || buffer == 0 {
 		b.err = &Error{Result: ResultLimitExceeded}
-		return C.bool(false)
+		return cFalse
 	}
 
 	n, err := b.reader.Read(unsafe.Slice((*byte)(unsafe.Pointer(buffer)), length))
 	if n < 0 || n > length {
 		b.err = fmt.Errorf("ghostty reader returned invalid byte count %d for capacity %d", n, length)
-		return C.bool(false)
+		return cFalse
 	}
-	*outRead = C.size_t(n)
+	*(*uint64)(unsafe.Pointer(outRead)) = uint64(n)
 
 	if err == nil {
 		// GhosttyReader defines a successful zero-byte read as permanent EOF.
 		b.eof = n == 0
-		return C.bool(true)
+		return cTrue
 	}
 	if errors.Is(err, io.EOF) {
 		// Deliver bytes returned with io.EOF first, then report definitive EOF
 		// without consulting the Go reader again.
 		b.eof = true
-		return C.bool(true)
+		return cTrue
 	}
 	if n > 0 {
 		// Go permits data and an error in the same read. Deliver the data now
 		// and report the fatal error on libghostty's next callback.
 		b.pendingErr = err
-		return C.bool(true)
+		return cTrue
 	}
 
 	b.err = err
-	return C.bool(false)
+	return cFalse
 }
 
-//export goGhosttyWriterTrampoline
+// goGhosttyWriterTrampoline is the GhosttyWriterFn installed by cWriter.
 func goGhosttyWriterTrampoline(
-	userdata C.uintptr_t,
-	data *C.uint8_t,
-	length C.size_t,
-) (ok C.bool) {
-	b := cgo.Handle(userdata).Value().(*ghosttyWriterBridge)
+	_ *libc.TLS,
+	userdata uintptr,
+	data uintptr,
+	length uint64,
+) (ok uint8) {
+	b := handle(userdata).value().(*ghosttyWriterBridge)
 
-	// A panic must never unwind across the C boundary. Preserve it as a Go
-	// error and make libghostty return GHOSTTY_IO_ERROR.
+	// A panic must never unwind into libghostty. Preserve it as a Go error
+	// and make libghostty return GHOSTTY_IO_ERROR.
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			b.err = fmt.Errorf("ghostty writer panic: %v", recovered)
-			ok = C.bool(false)
+			ok = cFalse
 		}
 	}()
 
 	count, valid := ghosttySizeToInt(length)
-	if !valid || count <= 0 || data == nil {
+	if !valid || count <= 0 || data == 0 {
 		b.err = &Error{Result: ResultLimitExceeded}
-		return C.bool(false)
+		return cFalse
 	}
 	remaining := unsafe.Slice((*byte)(unsafe.Pointer(data)), count)
 
@@ -293,26 +310,26 @@ func goGhosttyWriterTrampoline(
 		n, err := b.writer.Write(remaining)
 		if n < 0 || n > len(remaining) {
 			b.err = fmt.Errorf("ghostty writer returned invalid byte count %d for length %d", n, len(remaining))
-			return C.bool(false)
+			return cFalse
 		}
 
 		const maxInt64 = int64(^uint64(0) >> 1)
 		if b.written > maxInt64-int64(n) {
 			b.err = &Error{Result: ResultLimitExceeded}
-			return C.bool(false)
+			return cFalse
 		}
 		b.written += int64(n)
 		remaining = remaining[n:]
 
 		if err != nil {
 			b.err = err
-			return C.bool(false)
+			return cFalse
 		}
 		if n == 0 {
 			b.err = io.ErrShortWrite
-			return C.bool(false)
+			return cFalse
 		}
 	}
 
-	return C.bool(true)
+	return cTrue
 }

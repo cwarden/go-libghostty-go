@@ -3,31 +3,10 @@ package libghostty
 // Paste bindings for terminal-aware pasting plus terminal-free validation and
 // encoding. Wraps the C APIs from paste.h.
 
-/*
-#include <ghostty/vt.h>
-#include "go_io.h"
-
-static inline GhosttyResult ghostty_go_terminal_paste(
-	GhosttyTerminal terminal,
-	const GhosttyPaste* request,
-	uintptr_t userdata,
-	bool* out_written
-) {
-	GhosttyPaste copy = *request;
-	if (userdata != 0) {
-		copy.reader = (GhosttyMimeReader){
-			.read = ghostty_go_mime_reader_trampoline,
-			.userdata = (void*)userdata,
-		};
-	}
-	return ghostty_terminal_paste(terminal, &copy, out_written);
-}
-*/
-import "C"
-
 import (
-	"runtime/cgo"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
 )
 
 // PasteSource identifies why paste content is being inserted.
@@ -39,11 +18,11 @@ const (
 	// PasteSourceClipboard identifies a user-initiated clipboard paste. When
 	// Kitty paste events are enabled and a clipboard-read callback is
 	// installed, the terminal sends an event instead of writing text directly.
-	PasteSourceClipboard PasteSource = C.GHOSTTY_PASTE_SOURCE_CLIPBOARD
+	PasteSourceClipboard PasteSource = vt.GHOSTTY_PASTE_SOURCE_CLIPBOARD
 
 	// PasteSourceText identifies text inserted by another mechanism such as an
 	// IME commit, drag and drop, or scripted input. It is always written as text.
-	PasteSourceText PasteSource = C.GHOSTTY_PASTE_SOURCE_TEXT
+	PasteSourceText PasteSource = vt.GHOSTTY_PASTE_SOURCE_TEXT
 )
 
 // Paste describes content to paste into a terminal. MIMEs lists every
@@ -107,28 +86,36 @@ func (t *Terminal) Paste(paste Paste) (bool, error) {
 			return false, &Error{Result: ResultInvalidValue}
 		}
 		bridge.reader = paste.Reader
-		bridge.handle = cgo.NewHandle(bridge)
+		bridge.handle = newHandle(bridge)
 		defer bridge.close()
 	}
 
-	request := C.GhosttyPaste{
-		size:         C.size_t(C.sizeof_GhosttyPaste),
-		location:     C.GhosttyClipboardLocation(paste.Location),
-		source:       C.GhosttyPasteSource(paste.Source),
-		mimes:        mimes.ptr,
-		mimes_len:    C.size_t(len(paste.MIMEs)),
-		allow_unsafe: C.bool(paste.AllowUnsafe),
-	}
-	var userdata C.uintptr_t
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// One block holds the request followed by the written flag.
+	const requestSize = int(unsafe.Sizeof(vt.GhosttyPaste{}))
+	const n = requestSize + 1
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	request := (*vt.GhosttyPaste)(unsafe.Pointer(p))
+	request.Fsize = uint64(requestSize)
+	request.Flocation = vt.GhosttyClipboardLocation(paste.Location)
+	request.Fsource = vt.GhosttyPasteSource(paste.Source)
+	request.Fmimes = mimes.ptr
+	request.Fmimes_len = uint64(len(paste.MIMEs))
+	request.Fallow_unsafe = cBool(paste.AllowUnsafe)
 	if bridge.handle != 0 {
-		userdata = C.uintptr_t(bridge.handle)
+		request.Freader = bridge.cMIMEReader()
 	}
-	var written C.bool
-	result := C.ghostty_go_terminal_paste(t.ptr, &request, userdata, &written)
+	written := p + uintptr(requestSize)
+
+	result := vt.Xghostty_terminal_paste(tls, t.ptr, p, written)
 	if err := resultErrorWithCallback(result, bridge.err); err != nil {
 		return false, err
 	}
-	return bool(written), nil
+	return *(*uint8)(unsafe.Pointer(written)) != 0, nil
 }
 
 // PasteIsSafe reports whether data is safe to paste into a terminal.
@@ -147,11 +134,12 @@ func PasteIsSafe(data []byte) bool {
 	if len(data) == 0 {
 		return true
 	}
+	tls := getTLS()
+	defer putTLS(tls)
 
-	return bool(C.ghostty_paste_is_safe(
-		(*C.char)(unsafe.Pointer(&data[0])),
-		C.size_t(len(data)),
-	))
+	addr, unpin := pinBytes(data)
+	defer unpin()
+	return vt.Xghostty_paste_is_safe(tls, addr, uint64(len(data))) != 0
 }
 
 // PasteEncode prepares data for writing to a terminal pty.
@@ -193,18 +181,31 @@ func pasteEncodeInto(
 	bracketed bool,
 	buf []byte,
 ) ([]byte, int, error) {
-	var written C.size_t
-	result := C.ghostty_paste_encode(
-		(*C.char)(unsafe.Pointer(&data[0])),
-		C.size_t(len(data)),
-		C.bool(bracketed),
-		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
-		C.size_t(len(buf)),
-		&written,
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uint64(0)))
+	written := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(written)) = 0
+
+	dataAddr, unpinData := pinBytes(data)
+	defer unpinData()
+	bufAddr, unpinBuf := pinBytes(buf)
+	defer unpinBuf()
+	result := vt.Xghostty_paste_encode(
+		tls,
+		dataAddr,
+		uint64(len(data)),
+		cBool(bracketed),
+		bufAddr,
+		uint64(len(buf)),
+		written,
 	)
-	if result == C.GHOSTTY_SUCCESS {
-		return buf[:int(written)], int(written), nil
+	count := int(*(*uint64)(unsafe.Pointer(written)))
+	if result == vt.GHOSTTY_SUCCESS {
+		return buf[:count], count, nil
 	}
 
-	return nil, int(written), &Error{Result: Result(result)}
+	return nil, count, &Error{Result: Result(result)}
 }

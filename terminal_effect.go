@@ -1,258 +1,64 @@
 package libghostty
 
-// C trampolines for terminal effects.
+// Trampolines for terminal effects.
 //
-// Each exported Go function here is passed to the C side as a function
-// pointer. The C library calls it with a userdata void*, which is a
-// cgo.Handle pointing back to the owning *Terminal. The trampoline
-// recovers the Terminal and dispatches to the user-supplied Go effect handler.
-
-/*
-#include <ghostty/vt.h>
-#include <stdint.h>
-
-// Forward declarations for the Go trampolines so we can take their
-// addresses on the C side.
-extern void goWritePtyTrampoline(GhosttyTerminal, void*, uint8_t*, size_t);
-extern void goBellTrampoline(GhosttyTerminal, void*);
-extern void goClipboardWriteTrampoline(GhosttyTerminal, void*, GhosttyClipboardWrite*);
-extern void goClipboardReadTrampoline(GhosttyTerminal, void*, GhosttyClipboardRead*);
-extern void goDesktopNotificationTrampoline(GhosttyTerminal, void*, GhosttyTerminalDesktopNotification*);
-extern void goTitleChangedTrampoline(GhosttyTerminal, void*);
-extern void goPwdChangedTrampoline(GhosttyTerminal, void*);
-extern void goProgressReportTrampoline(GhosttyTerminal, void*, GhosttyTerminalProgressReport*);
-extern void goProgramStatusTrampoline(GhosttyTerminal, void*, GhosttyTerminalProgramStatus*);
-extern GhosttyString goEnquiryTrampoline(GhosttyTerminal, void*);
-extern GhosttyString goXtversionTrampoline(GhosttyTerminal, void*);
-extern bool goSizeTrampoline(GhosttyTerminal, void*, GhosttySizeReportSize*);
-extern bool goColorSchemeTrampoline(GhosttyTerminal, void*, GhosttyColorScheme*);
-extern bool goDeviceAttributesTrampoline(GhosttyTerminal, void*, GhosttyDeviceAttributes*);
-extern void goUnknownSequenceTrampoline(GhosttyTerminal, void*, GhosttyTerminalUnknownSequence*);
-extern void goRenderHoldTrampoline(GhosttyTerminal, void*, bool);
-extern void goSemanticPromptTrampoline(GhosttyTerminal, void*, GhosttyTerminalSemanticPrompt*);
-extern void goResetTrampoline(GhosttyTerminal, void*);
-extern void goWindowResizeTrampoline(GhosttyTerminal, void*, GhosttyTerminalResizeWindow*);
-
-// Helpers to set each effect via ghostty_terminal_set.
-// We need these because cgo cannot take the address of a Go-exported
-// function directly as a C function pointer.
-static inline GhosttyResult set_write_pty(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void*)goWritePtyTrampoline);
-}
-static inline GhosttyResult set_bell(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_BELL, (const void*)goBellTrampoline);
-}
-static inline GhosttyResult set_clipboard_write(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE, (const void*)goClipboardWriteTrampoline);
-}
-static inline GhosttyResult set_clipboard_read(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, (const void*)goClipboardReadTrampoline);
-}
-static inline GhosttyResult set_desktop_notification(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION, (const void*)goDesktopNotificationTrampoline);
-}
-static inline GhosttyResult set_title_changed(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, (const void*)goTitleChangedTrampoline);
-}
-static inline GhosttyResult set_pwd_changed(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_PWD_CHANGED, (const void*)goPwdChangedTrampoline);
-}
-static inline GhosttyResult set_progress_report(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT, (const void*)goProgressReportTrampoline);
-}
-static inline GhosttyResult set_program_status(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS, (const void*)goProgramStatusTrampoline);
-}
-static inline GhosttyResult set_enquiry(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_ENQUIRY, (const void*)goEnquiryTrampoline);
-}
-static inline GhosttyResult set_xtversion(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_XTVERSION, (const void*)goXtversionTrampoline);
-}
-static inline GhosttyResult set_size(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_SIZE, (const void*)goSizeTrampoline);
-}
-static inline GhosttyResult set_color_scheme(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_COLOR_SCHEME, (const void*)goColorSchemeTrampoline);
-}
-static inline GhosttyResult set_device_attributes(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES, (const void*)goDeviceAttributesTrampoline);
-}
-static inline GhosttyResult set_unknown_sequence(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE, (const void*)goUnknownSequenceTrampoline);
-}
-static inline GhosttyResult set_render_hold(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_RENDER_HOLD, (const void*)goRenderHoldTrampoline);
-}
-static inline GhosttyResult set_semantic_prompt(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT, (const void*)goSemanticPromptTrampoline);
-}
-static inline GhosttyResult set_reset(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_RESET, (const void*)goResetTrampoline);
-}
-static inline GhosttyResult set_resize_window(GhosttyTerminal t) {
-	return ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW, (const void*)goWindowResizeTrampoline);
-}
-
-// Convert the integer cgo.Handle to native userdata only after control enters
-// C. A handle is not a valid pointer and must never occupy an unsafe.Pointer
-// slot in a Go stack frame.
-static inline GhosttyResult set_userdata(GhosttyTerminal t, uintptr_t userdata) {
-	return ghostty_terminal_set(
-		t,
-		GHOSTTY_TERMINAL_OPT_USERDATA,
-		(const void*)userdata);
-}
-
-// Return the APC member of the tagged union without making Go depend on
-// cgo's platform-specific representation of C unions.
-static inline const GhosttyTerminalUnknownStringSequence* unknown_sequence_apc(
-		const GhosttyTerminalUnknownSequence* sequence) {
-	return &sequence->value.apc;
-}
-
-// Return the OSC member only after checking the sequence tag in Go.
-static inline const GhosttyTerminalUnknownOscSequence* unknown_sequence_osc(
-		const GhosttyTerminalUnknownSequence* sequence) {
-	return &sequence->value.osc;
-}
-
-// Return the grid member only after checking the request tag in Go.
-static inline const GhosttyTerminalResizeWindowGrid* resize_window_grid(
-		const GhosttyTerminalResizeWindow* request) {
-	return &request->value.grid;
-}
-
-// Helper to clear an effect by setting it to NULL.
-static inline GhosttyResult clear_effect(GhosttyTerminal t, GhosttyTerminalOption opt) {
-	return ghostty_terminal_set(t, opt, NULL);
-}
-
-// Invoke reply function pointers stored in borrowed clipboard requests. Cgo
-// cannot call C function pointers directly.
-static inline void reply_clipboard_write(
-		const GhosttyClipboardWrite* write,
-		const GhosttyClipboardWriteReply* reply) {
-	if (write != NULL && write->reply != NULL) write->reply(write, reply);
-}
-static inline void reply_clipboard_read(
-		const GhosttyClipboardRead* read,
-		const GhosttyClipboardReadReply* reply) {
-	if (read != NULL && read->reply != NULL) read->reply(read, reply);
-}
-*/
-import "C"
+// Each top-level Go function here is passed to libghostty as a function
+// pointer through vt.Fp. libghostty calls it with a userdata void*, which is
+// a handle (see ccgo.go) that identifies the owning *Terminal. The
+// trampoline recovers the Terminal and dispatches to the user-supplied Go
+// effect handler. Each trampoline's signature is the translation of the C
+// function pointer type: the TLS first, then the terminal, the userdata and
+// the C parameters, with bool as uint8 and pointers as uintptr.
 
 import (
-	"runtime/cgo"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // syncEffects registers or clears each C effect based on whether
 // the corresponding Go effect handler is set.
 func (t *Terminal) syncEffects() {
+	tls := getTLS()
+	defer putTLS(tls)
+
 	// Install userdata before registering the first callback. Terminals without
-	// callbacks do not need a handle.
+	// callbacks do not need a handle. The handle is the userdata value itself,
+	// not the address of anything.
 	if t.handle == 0 && t.hasEffects() {
-		t.handle = cgo.NewHandle(t)
-		C.set_userdata(t.ptr, C.uintptr_t(t.handle))
+		t.handle = newHandle(t)
+		vt.Xghostty_terminal_set(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_USERDATA, uintptr(t.handle))
 	}
 
-	if t.onWritePty != nil {
-		C.set_write_pty(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_WRITE_PTY)
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_WRITE_PTY, t.onWritePty != nil, vt.Fp(goWritePtyTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_BELL, t.onBell != nil, vt.Fp(goBellTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE, t.onClipboardWrite != nil, vt.Fp(goClipboardWriteTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, t.onClipboardRead != nil, vt.Fp(goClipboardReadTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION, t.onDesktopNotification != nil, vt.Fp(goDesktopNotificationTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, t.onTitleChanged != nil, vt.Fp(goTitleChangedTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_PWD_CHANGED, t.onPwdChanged != nil, vt.Fp(goPwdChangedTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT, t.onProgressReport != nil, vt.Fp(goProgressReportTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS, t.onProgramStatus != nil, vt.Fp(goProgramStatusTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_ENQUIRY, t.onEnquiry != nil, vt.Fp(goEnquiryTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_XTVERSION, t.onXtversion != nil, vt.Fp(goXtversionTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_SIZE, t.onSize != nil, vt.Fp(goSizeTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_COLOR_SCHEME, t.onColorScheme != nil, vt.Fp(goColorSchemeTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES, t.onDeviceAttributes != nil, vt.Fp(goDeviceAttributesTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE, t.onUnknownSequence != nil, vt.Fp(goUnknownSequenceTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_RENDER_HOLD, t.onRenderHold != nil, vt.Fp(goRenderHoldTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT, t.onSemanticPrompt != nil, vt.Fp(goSemanticPromptTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_RESET, t.onReset != nil, vt.Fp(goResetTrampoline))
+	t.setEffect(tls, vt.GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW, t.onWindowResize != nil, vt.Fp(goWindowResizeTrampoline))
+}
+
+// setEffect registers fp for option when set is true, and clears the
+// option otherwise.
+func (t *Terminal) setEffect(tls *libc.TLS, option vt.GhosttyTerminalOption, set bool, fp uintptr) {
+	if !set {
+		fp = 0
 	}
-	if t.onBell != nil {
-		C.set_bell(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_BELL)
-	}
-	if t.onClipboardWrite != nil {
-		C.set_clipboard_write(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE)
-	}
-	if t.onClipboardRead != nil {
-		C.set_clipboard_read(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ)
-	}
-	if t.onDesktopNotification != nil {
-		C.set_desktop_notification(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION)
-	}
-	if t.onTitleChanged != nil {
-		C.set_title_changed(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_TITLE_CHANGED)
-	}
-	if t.onPwdChanged != nil {
-		C.set_pwd_changed(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_PWD_CHANGED)
-	}
-	if t.onProgressReport != nil {
-		C.set_progress_report(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT)
-	}
-	if t.onProgramStatus != nil {
-		C.set_program_status(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS)
-	}
-	if t.onEnquiry != nil {
-		C.set_enquiry(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_ENQUIRY)
-	}
-	if t.onXtversion != nil {
-		C.set_xtversion(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_XTVERSION)
-	}
-	if t.onSize != nil {
-		C.set_size(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_SIZE)
-	}
-	if t.onColorScheme != nil {
-		C.set_color_scheme(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_COLOR_SCHEME)
-	}
-	if t.onDeviceAttributes != nil {
-		C.set_device_attributes(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES)
-	}
-	if t.onUnknownSequence != nil {
-		C.set_unknown_sequence(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE)
-	}
-	if t.onRenderHold != nil {
-		C.set_render_hold(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_RENDER_HOLD)
-	}
-	if t.onSemanticPrompt != nil {
-		C.set_semantic_prompt(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT)
-	}
-	if t.onReset != nil {
-		C.set_reset(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_RESET)
-	}
-	if t.onWindowResize != nil {
-		C.set_resize_window(t.ptr)
-	} else {
-		C.clear_effect(t.ptr, C.GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW)
-	}
+	vt.Xghostty_terminal_set(tls, t.ptr, option, fp)
 }
 
 // hasEffects reports whether any native effect trampoline needs to recover
@@ -279,115 +85,135 @@ func (t *Terminal) hasEffects() bool {
 		t.onWindowResize != nil
 }
 
-// terminalFromUserdata recovers a *Terminal from the C userdata pointer.
-func terminalFromUserdata(userdata unsafe.Pointer) *Terminal {
-	return cgo.Handle(userdata).Value().(*Terminal)
+// terminalFromUserdata recovers a *Terminal from the C userdata value.
+func terminalFromUserdata(userdata uintptr) *Terminal {
+	return handle(userdata).value().(*Terminal)
 }
 
-//export goWritePtyTrampoline
-func goWritePtyTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, data *C.uint8_t, length C.size_t) {
+// goWritePtyTrampoline is the GhosttyTerminalWritePtyFn.
+func goWritePtyTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr, data uintptr, length uint64) {
 	t := terminalFromUserdata(userdata)
 	if t.onWritePty != nil {
-		t.onWritePty(t, C.GoBytes(unsafe.Pointer(data), C.int(length)))
+		t.onWritePty(t, goBytes(data, int(length)))
 	}
 }
 
-//export goBellTrampoline
-func goBellTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) {
+// goBellTrampoline is the GhosttyTerminalBellFn.
+func goBellTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) {
 	t := terminalFromUserdata(userdata)
 	if t.onBell != nil {
 		t.onBell(t)
 	}
 }
 
-//export goClipboardWriteTrampoline
-func goClipboardWriteTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, write *C.GhosttyClipboardWrite) {
+// goClipboardWriteTrampoline is the GhosttyTerminalClipboardWriteFn. write
+// is a borrowed *GhosttyClipboardWrite.
+func goClipboardWriteTrampoline(tls *libc.TLS, _ uintptr, userdata uintptr, write uintptr) {
 	t := terminalFromUserdata(userdata)
 
-	if write == nil {
+	if write == 0 {
 		return
 	}
 	if t.onClipboardWrite == nil {
-		replyClipboardWrite(write, ClipboardWriteReply{Result: ClipboardWriteUnsupported})
+		replyClipboardWrite(tls, write, ClipboardWriteReply{Result: ClipboardWriteUnsupported})
 		return
 	}
 
-	contents, ok := copyClipboardContents(write.contents, write.contents_len)
+	w := (*vt.GhosttyClipboardWrite)(unsafe.Pointer(write))
+	contents, ok := copyClipboardContents(w.Fcontents, w.Fcontents_len)
 	if !ok {
-		replyClipboardWrite(write, ClipboardWriteReply{Result: ClipboardWriteInvalidData})
+		replyClipboardWrite(tls, write, ClipboardWriteReply{Result: ClipboardWriteInvalidData})
 		return
 	}
-	name, ok := copyGhosttyString(write.name)
+	name, ok := copyGhosttyString(w.Fname)
 	if !ok {
-		replyClipboardWrite(write, ClipboardWriteReply{Result: ClipboardWriteInvalidData})
+		replyClipboardWrite(tls, write, ClipboardWriteReply{Result: ClipboardWriteInvalidData})
 		return
 	}
 
 	reply := t.onClipboardWrite(t, ClipboardWrite{
-		Location:    ClipboardLocation(write.location),
+		Location:    ClipboardLocation(w.Flocation),
 		Contents:    contents,
 		Name:        string(name),
-		Granted:     bool(write.granted),
-		CanRemember: bool(write.can_remember),
+		Granted:     w.Fgranted != 0,
+		CanRemember: w.Fcan_remember != 0,
 	})
-	replyClipboardWrite(write, reply)
+	replyClipboardWrite(tls, write, reply)
 }
 
 // replyClipboardWrite answers a borrowed C clipboard-write request before its
-// callback lifetime ends.
-func replyClipboardWrite(write *C.GhosttyClipboardWrite, reply ClipboardWriteReply) {
-	cReply := C.GhosttyClipboardWriteReply{
-		size:     C.size_t(C.sizeof_GhosttyClipboardWriteReply),
-		result:   C.GhosttyClipboardWriteResult(reply.Result),
-		remember: C.bool(reply.Remember),
+// callback lifetime ends. The reply struct is built in TLS memory and passed
+// to the request's reply function pointer.
+func replyClipboardWrite(tls *libc.TLS, write uintptr, reply ClipboardWriteReply) {
+	w := (*vt.GhosttyClipboardWrite)(unsafe.Pointer(write))
+	if w.Freply == 0 {
+		return
 	}
-	C.reply_clipboard_write(write, &cReply)
+	const size = int(unsafe.Sizeof(vt.GhosttyClipboardWriteReply{}))
+	p := tls.Alloc(size)
+	defer tls.Free(size)
+	*(*vt.GhosttyClipboardWriteReply)(unsafe.Pointer(p)) = vt.GhosttyClipboardWriteReply{
+		Fsize:     uint64(size),
+		Fresult:   vt.GhosttyClipboardWriteResult(reply.Result),
+		Fremember: cBool(reply.Remember),
+	}
+	(*(*func(*libc.TLS, uintptr, uintptr))(unsafe.Pointer(&struct{ uintptr }{w.Freply})))(tls, write, p)
 }
 
-//export goClipboardReadTrampoline
-func goClipboardReadTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, read *C.GhosttyClipboardRead) {
+// goClipboardReadTrampoline is the GhosttyTerminalClipboardReadFn. read is
+// a borrowed *GhosttyClipboardRead.
+func goClipboardReadTrampoline(tls *libc.TLS, _ uintptr, userdata uintptr, read uintptr) {
 	t := terminalFromUserdata(userdata)
 
 	// Without a descriptor there is no reply function pointer, so returning
 	// without a reply deliberately selects libghostty's denied fallback.
-	if read == nil {
+	if read == 0 {
 		return
 	}
 	if t.onClipboardRead == nil {
-		replyClipboardRead(read, ClipboardReadReply{Result: ClipboardReadUnsupported})
+		replyClipboardRead(tls, read, ClipboardReadReply{Result: ClipboardReadUnsupported})
 		return
 	}
 
-	mimes, ok := copyGhosttyStringArray(read.mimes, read.mimes_len)
+	r := (*vt.GhosttyClipboardRead)(unsafe.Pointer(read))
+	mimes, ok := copyGhosttyStringArray(r.Fmimes, r.Fmimes_len)
 	if !ok {
-		replyClipboardRead(read, ClipboardReadReply{Result: ClipboardReadIOError})
+		replyClipboardRead(tls, read, ClipboardReadReply{Result: ClipboardReadIOError})
 		return
 	}
-	name, ok := copyGhosttyString(read.name)
+	name, ok := copyGhosttyString(r.Fname)
 	if !ok {
-		replyClipboardRead(read, ClipboardReadReply{Result: ClipboardReadIOError})
+		replyClipboardRead(tls, read, ClipboardReadReply{Result: ClipboardReadIOError})
 		return
 	}
 
 	reply := t.onClipboardRead(t, ClipboardRead{
-		Location:    ClipboardLocation(read.location),
+		Location:    ClipboardLocation(r.Flocation),
 		MIMEs:       mimes,
-		List:        bool(read.list),
+		List:        r.Flist != 0,
 		Name:        string(name),
-		Granted:     bool(read.granted),
-		CanRemember: bool(read.can_remember),
+		Granted:     r.Fgranted != 0,
+		CanRemember: r.Fcan_remember != 0,
 	})
-	replyClipboardRead(read, reply)
+	replyClipboardRead(tls, read, reply)
 }
 
 // replyClipboardRead copies a Go reply into C-owned temporary buffers and
 // invokes the request's synchronous reply function. Allocation failures are
 // reported to the running program as clipboard I/O errors.
-func replyClipboardRead(read *C.GhosttyClipboardRead, reply ClipboardReadReply) {
-	cReply := C.GhosttyClipboardReadReply{
-		size:     C.size_t(C.sizeof_GhosttyClipboardReadReply),
-		result:   C.GhosttyClipboardReadResult(reply.Result),
-		remember: C.bool(reply.Remember),
+func replyClipboardRead(tls *libc.TLS, read uintptr, reply ClipboardReadReply) {
+	r := (*vt.GhosttyClipboardRead)(unsafe.Pointer(read))
+	if r.Freply == 0 {
+		return
+	}
+	const size = int(unsafe.Sizeof(vt.GhosttyClipboardReadReply{}))
+	p := tls.Alloc(size)
+	defer tls.Free(size)
+	cReply := (*vt.GhosttyClipboardReadReply)(unsafe.Pointer(p))
+	*cReply = vt.GhosttyClipboardReadReply{
+		Fsize:     uint64(size),
+		Fresult:   vt.GhosttyClipboardReadResult(reply.Result),
+		Fremember: cBool(reply.Remember),
 	}
 
 	var contents *cGhosttyClipboardContents
@@ -407,17 +233,17 @@ func replyClipboardRead(read *C.GhosttyClipboardRead, reply ClipboardReadReply) 
 				contents.close()
 				contents = nil
 			}
-			cReply.result = C.GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR
-			cReply.remember = C.bool(false)
+			cReply.Fresult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR
+			cReply.Fremember = cFalse
 		} else {
-			cReply.contents = contents.ptr
-			cReply.contents_len = C.size_t(len(reply.Contents))
-			cReply.available = available.ptr
-			cReply.available_len = C.size_t(len(reply.Available))
+			cReply.Fcontents = contents.ptr
+			cReply.Fcontents_len = uint64(len(reply.Contents))
+			cReply.Favailable = available.ptr
+			cReply.Favailable_len = uint64(len(reply.Available))
 		}
 	}
 
-	C.reply_clipboard_read(read, &cReply)
+	(*(*func(*libc.TLS, uintptr, uintptr))(unsafe.Pointer(&struct{ uintptr }{r.Freply})))(tls, read, p)
 	if available != nil {
 		available.close()
 	}
@@ -427,10 +253,11 @@ func replyClipboardRead(read *C.GhosttyClipboardRead, reply ClipboardReadReply) 
 }
 
 // copyClipboardContents copies borrowed C clipboard representations into
-// Go-owned memory.
-func copyClipboardContents(values *C.GhosttyClipboardContent, count C.size_t) ([]ClipboardContent, bool) {
+// Go-owned memory. values is the C address of a GhosttyClipboardContent
+// array.
+func copyClipboardContents(values uintptr, count uint64) ([]ClipboardContent, bool) {
 	length, ok := ghosttySizeToInt(count)
-	if !ok || (length > 0 && values == nil) {
+	if !ok || (length > 0 && values == 0) {
 		return nil, false
 	}
 
@@ -438,12 +265,12 @@ func copyClipboardContents(values *C.GhosttyClipboardContent, count C.size_t) ([
 	if length == 0 {
 		return result, true
 	}
-	for i, content := range unsafe.Slice(values, length) {
-		mime, valid := copyGhosttyString(content.mime)
+	for i, content := range unsafe.Slice((*vt.GhosttyClipboardContent)(unsafe.Pointer(values)), length) {
+		mime, valid := copyGhosttyString(content.Fmime)
 		if !valid {
 			return nil, false
 		}
-		data, valid := copyGhosttyString(content.data)
+		data, valid := copyGhosttyString(content.Fdata)
 		if !valid {
 			return nil, false
 		}
@@ -455,8 +282,8 @@ func copyClipboardContents(values *C.GhosttyClipboardContent, count C.size_t) ([
 // cGhosttyClipboardContents owns a C array of clipboard-content descriptors
 // and every C string referenced by the array.
 type cGhosttyClipboardContents struct {
-	ptr            *C.GhosttyClipboardContent
-	descriptorPtr  unsafe.Pointer
+	// ptr is the C address of the descriptor array, or 0 when empty.
+	ptr            uintptr
 	descriptorSize uintptr
 	strings        *cGhosttyStringArray
 }
@@ -483,7 +310,7 @@ func newCGhosttyClipboardContents(values []ClipboardContent) (*cGhosttyClipboard
 	}
 	owner.strings = stringOwner
 
-	elementSize := uintptr(C.sizeof_GhosttyClipboardContent)
+	elementSize := unsafe.Sizeof(vt.GhosttyClipboardContent{})
 	if uintptr(len(values)) > ^uintptr(0)/elementSize {
 		owner.close()
 		return nil, &Error{Result: ResultLimitExceeded}
@@ -491,19 +318,19 @@ func newCGhosttyClipboardContents(values []ClipboardContent) (*cGhosttyClipboard
 	owner.descriptorSize = uintptr(len(values)) * elementSize
 	// Each GhosttyClipboardContent in the array contains pointers, so the
 	// array must start out zeroed. See allocZeroed.
-	owner.descriptorPtr = allocZeroed(owner.descriptorSize)
-	if owner.descriptorPtr == nil {
+	descriptorPtr := allocZeroed(owner.descriptorSize)
+	if descriptorPtr == nil {
 		owner.close()
 		return nil, &Error{Result: ResultOutOfMemory}
 	}
-	owner.ptr = (*C.GhosttyClipboardContent)(owner.descriptorPtr)
+	owner.ptr = uintptr(descriptorPtr)
 
-	descriptors := unsafe.Slice(owner.ptr, len(values))
-	stringDescriptors := unsafe.Slice(stringOwner.ptr, len(strings))
+	descriptors := unsafe.Slice((*vt.GhosttyClipboardContent)(descriptorPtr), len(values))
+	stringDescriptors := unsafe.Slice((*vt.GhosttyString)(unsafe.Pointer(stringOwner.ptr)), len(strings))
 	for i := range values {
-		descriptors[i] = C.GhosttyClipboardContent{
-			mime: stringDescriptors[i*2],
-			data: stringDescriptors[i*2+1],
+		descriptors[i] = vt.GhosttyClipboardContent{
+			Fmime: stringDescriptors[i*2],
+			Fdata: stringDescriptors[i*2+1],
 		}
 	}
 	return owner, nil
@@ -514,36 +341,39 @@ func (c *cGhosttyClipboardContents) close() {
 	if c == nil {
 		return
 	}
-	Free(c.descriptorPtr, c.descriptorSize)
+	Free(unsafe.Pointer(c.ptr), c.descriptorSize)
 	if c.strings != nil {
 		c.strings.close()
 	}
-	c.ptr = nil
-	c.descriptorPtr = nil
+	c.ptr = 0
 	c.descriptorSize = 0
 	c.strings = nil
 }
 
-//export goDesktopNotificationTrampoline
+// goDesktopNotificationTrampoline is the
+// GhosttyTerminalDesktopNotificationFn. notification is a borrowed
+// *GhosttyTerminalDesktopNotification.
 func goDesktopNotificationTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	notification *C.GhosttyTerminalDesktopNotification,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	notification uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
 	if t.onDesktopNotification == nil {
 		return
 	}
 
-	if notification == nil {
+	if notification == 0 {
 		return
 	}
 
-	title, ok := copyGhosttyString(notification.title)
+	n := (*vt.GhosttyTerminalDesktopNotification)(unsafe.Pointer(notification))
+	title, ok := copyGhosttyString(n.Ftitle)
 	if !ok {
 		return
 	}
-	body, ok := copyGhosttyString(notification.body)
+	body, ok := copyGhosttyString(n.Fbody)
 	if !ok {
 		return
 	}
@@ -554,82 +384,88 @@ func goDesktopNotificationTrampoline(
 	})
 }
 
-//export goTitleChangedTrampoline
-func goTitleChangedTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) {
+// goTitleChangedTrampoline is the GhosttyTerminalTitleChangedFn.
+func goTitleChangedTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) {
 	t := terminalFromUserdata(userdata)
 	if t.onTitleChanged != nil {
 		t.onTitleChanged(t)
 	}
 }
 
-//export goPwdChangedTrampoline
-func goPwdChangedTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) {
+// goPwdChangedTrampoline is the GhosttyTerminalPwdChangedFn.
+func goPwdChangedTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) {
 	t := terminalFromUserdata(userdata)
 	if t.onPwdChanged != nil {
 		t.onPwdChanged(t)
 	}
 }
 
-//export goProgressReportTrampoline
+// goProgressReportTrampoline is the GhosttyTerminalProgressReportFn.
+// report is a borrowed *GhosttyTerminalProgressReport.
 func goProgressReportTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	report *C.GhosttyTerminalProgressReport,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	report uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
 	if t.onProgressReport == nil {
 		return
 	}
 
-	if report == nil {
+	if report == 0 {
 		return
 	}
 
+	r := (*vt.GhosttyTerminalProgressReport)(unsafe.Pointer(report))
 	t.onProgressReport(t, TerminalProgressReport{
-		State:    TerminalProgressState(report.state),
-		Progress: int8(report.progress),
+		State:    TerminalProgressState(r.Fstate),
+		Progress: int8(r.Fprogress),
 	})
 }
 
-//export goProgramStatusTrampoline
+// goProgramStatusTrampoline is the GhosttyTerminalProgramStatusFn. report
+// is a borrowed *GhosttyTerminalProgramStatus.
 func goProgramStatusTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	report *C.GhosttyTerminalProgramStatus,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	reportPtr uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
 	if t.onProgramStatus == nil {
 		return
 	}
 
-	if report == nil {
+	if reportPtr == 0 {
 		return
 	}
+	report := (*vt.GhosttyTerminalProgramStatus)(unsafe.Pointer(reportPtr))
 
 	// The strings are only valid during the callback, so copy them all into
 	// Go memory. A malformed string drops the whole report rather than
 	// delivering a partial record, since reports replace records entirely.
-	id, ok := copyGhosttyString(report.id)
+	id, ok := copyGhosttyString(report.Fid)
 	if !ok {
 		return
 	}
-	app, ok := copyGhosttyString(report.app)
+	app, ok := copyGhosttyString(report.Fapp)
 	if !ok {
 		return
 	}
-	title, ok := copyGhosttyString(report.title)
+	title, ok := copyGhosttyString(report.Ftitle)
 	if !ok {
 		return
 	}
-	message, ok := copyGhosttyString(report.message)
+	message, ok := copyGhosttyString(report.Fmessage)
 	if !ok {
 		return
 	}
 
 	t.onProgramStatus(t, ProgramStatus{
-		State:    ProgramStatusState(report.state),
-		Kind:     ProgramStatusKind(report.kind),
-		Progress: int8(report.progress),
+		State:    ProgramStatusState(report.Fstate),
+		Kind:     ProgramStatusKind(report.Fkind),
+		Progress: int8(report.Fprogress),
 		ID:       string(id),
 		App:      string(app),
 		Title:    string(title),
@@ -637,198 +473,214 @@ func goProgramStatusTrampoline(
 	})
 }
 
-//export goUnknownSequenceTrampoline
+// goUnknownSequenceTrampoline is the GhosttyTerminalUnknownSequenceFn.
+// sequence is a borrowed *GhosttyTerminalUnknownSequence.
 func goUnknownSequenceTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	sequence *C.GhosttyTerminalUnknownSequence,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	sequence uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
-	if t.onUnknownSequence == nil || sequence == nil {
+	if t.onUnknownSequence == nil || sequence == 0 {
 		return
 	}
 
+	seq := (*vt.GhosttyTerminalUnknownSequence)(unsafe.Pointer(sequence))
 	value := TerminalUnknownSequence{
-		Tag: TerminalUnknownSequenceTag(sequence.tag),
+		Tag: TerminalUnknownSequenceTag(seq.Ftag),
 	}
+	// Only the union member that matches the tag is read; every member
+	// starts at the union's address.
 	if value.Tag == TerminalUnknownSequenceAPC {
-		apc := C.unknown_sequence_apc(sequence)
-		content, ok := copyGhosttyString(apc.content)
+		apc := (*vt.GhosttyTerminalUnknownStringSequence)(unsafe.Pointer(&seq.Fvalue))
+		content, ok := copyGhosttyString(apc.Fcontent)
 		if !ok {
 			return
 		}
 		value.APC = TerminalUnknownStringSequence{
-			Truncated: bool(apc.truncated),
+			Truncated: apc.Ftruncated != 0,
 			Content:   content,
 		}
 	} else if value.Tag == TerminalUnknownSequenceOSC {
-		osc := C.unknown_sequence_osc(sequence)
-		content, ok := copyGhosttyString(osc.content)
+		osc := (*vt.GhosttyTerminalUnknownOscSequence)(unsafe.Pointer(&seq.Fvalue))
+		content, ok := copyGhosttyString(osc.Fcontent)
 		if !ok {
 			return
 		}
 		value.OSC = TerminalUnknownOSCSequence{
-			Truncated:  bool(osc.truncated),
+			Truncated:  osc.Ftruncated != 0,
 			Content:    content,
-			Terminator: OSCTerminator(osc.terminator),
+			Terminator: OSCTerminator(osc.Fterminator),
 		}
 	}
 
 	t.onUnknownSequence(t, value)
 }
 
-//export goRenderHoldTrampoline
-func goRenderHoldTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, held C.bool) {
+// goRenderHoldTrampoline is the GhosttyTerminalRenderHoldFn.
+func goRenderHoldTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr, held uint8) {
 	t := terminalFromUserdata(userdata)
 	if t.onRenderHold != nil {
-		t.onRenderHold(t, bool(held))
+		t.onRenderHold(t, held != 0)
 	}
 }
 
-//export goSemanticPromptTrampoline
+// goSemanticPromptTrampoline is the GhosttyTerminalSemanticPromptFn. event
+// is a borrowed *GhosttyTerminalSemanticPrompt.
 func goSemanticPromptTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	event *C.GhosttyTerminalSemanticPrompt,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	eventPtr uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
 	if t.onSemanticPrompt == nil {
 		return
 	}
 
-	if event == nil {
+	if eventPtr == 0 {
 		return
 	}
+	event := (*vt.GhosttyTerminalSemanticPrompt)(unsafe.Pointer(eventPtr))
 
 	// The strings are only valid during this call, so copy them into Go
 	// memory before passing the event to the application.
-	command, ok := copyGhosttyString(event.command)
+	command, ok := copyGhosttyString(event.Fcommand)
 	if !ok {
 		return
 	}
-	errText, ok := copyGhosttyString(event.error)
+	errText, ok := copyGhosttyString(event.Ferror1)
 	if !ok {
 		return
 	}
 
 	t.onSemanticPrompt(t, TerminalSemanticPrompt{
-		Kind:        SemanticPromptKind(event.kind),
-		PromptKind:  PromptKind(event.prompt_kind),
-		HasExitCode: bool(event.has_exit_code),
-		ExitCode:    int(event.exit_code),
+		Kind:        SemanticPromptKind(event.Fkind),
+		PromptKind:  PromptKind(event.Fprompt_kind),
+		HasExitCode: event.Fhas_exit_code != 0,
+		ExitCode:    int(event.Fexit_code),
 		Command:     string(command),
 		Error:       string(errText),
 	})
 }
 
-//export goResetTrampoline
-func goResetTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) {
+// goResetTrampoline is the GhosttyTerminalResetFn.
+func goResetTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) {
 	t := terminalFromUserdata(userdata)
 	if t.onReset != nil {
 		t.onReset(t)
 	}
 }
 
-//export goWindowResizeTrampoline
+// goWindowResizeTrampoline is the GhosttyTerminalResizeWindowFn. request
+// is a borrowed *GhosttyTerminalResizeWindow.
 func goWindowResizeTrampoline(
-	_ C.GhosttyTerminal,
-	userdata unsafe.Pointer,
-	request *C.GhosttyTerminalResizeWindow,
+	_ *libc.TLS,
+	_ uintptr,
+	userdata uintptr,
+	requestPtr uintptr,
 ) {
 	t := terminalFromUserdata(userdata)
-	if t.onWindowResize == nil || request == nil {
+	if t.onWindowResize == nil || requestPtr == 0 {
 		return
 	}
+	request := (*vt.GhosttyTerminalResizeWindow)(unsafe.Pointer(requestPtr))
 
 	// Only read the union member that matches the tag. Requests with an
 	// unknown tag are still delivered, with only Kind set, so the callback
 	// can see and ignore them.
-	resize := WindowResize{Kind: WindowResizeKind(request.tag)}
+	resize := WindowResize{Kind: WindowResizeKind(request.Ftag)}
 	if resize.Kind == WindowResizeGrid {
-		grid := C.resize_window_grid(request)
-		resize.Rows = uint16(grid.rows)
-		resize.Columns = uint16(grid.columns)
+		grid := (*vt.GhosttyTerminalResizeWindowGrid)(unsafe.Pointer(&request.Fvalue))
+		resize.Rows = grid.Frows
+		resize.Columns = grid.Fcolumns
 	}
 
 	t.onWindowResize(t, resize)
 }
 
-//export goEnquiryTrampoline
-func goEnquiryTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) C.GhosttyString {
+// goEnquiryTrampoline is the GhosttyTerminalEnquiryFn.
+func goEnquiryTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) vt.GhosttyString {
 	t := terminalFromUserdata(userdata)
 	if t.onEnquiry == nil {
-		return C.GhosttyString{}
+		return vt.GhosttyString{}
 	}
 	return t.effectString(t.onEnquiry(t))
 }
 
-//export goXtversionTrampoline
-func goXtversionTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer) C.GhosttyString {
+// goXtversionTrampoline is the GhosttyTerminalXtversionFn.
+func goXtversionTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr) vt.GhosttyString {
 	t := terminalFromUserdata(userdata)
 	if t.onXtversion == nil {
-		return C.GhosttyString{}
+		return vt.GhosttyString{}
 	}
 	return t.effectString([]byte(t.onXtversion(t)))
 }
 
-//export goSizeTrampoline
-func goSizeTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, outSize *C.GhosttySizeReportSize) C.bool {
+// goSizeTrampoline is the GhosttyTerminalSizeFn. outSize is a
+// *GhosttySizeReportSize to fill in.
+func goSizeTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr, outSize uintptr) uint8 {
 	t := terminalFromUserdata(userdata)
 	if t.onSize == nil {
-		return C.bool(false)
+		return cFalse
 	}
 	size, ok := t.onSize(t)
 	if !ok {
-		return C.bool(false)
+		return cFalse
 	}
-	outSize.rows = C.uint16_t(size.Rows)
-	outSize.columns = C.uint16_t(size.Columns)
-	outSize.cell_width = C.uint32_t(size.CellWidth)
-	outSize.cell_height = C.uint32_t(size.CellHeight)
-	return C.bool(true)
+	out := (*vt.GhosttySizeReportSize)(unsafe.Pointer(outSize))
+	out.Frows = size.Rows
+	out.Fcolumns = size.Columns
+	out.Fcell_width = size.CellWidth
+	out.Fcell_height = size.CellHeight
+	return cTrue
 }
 
-//export goColorSchemeTrampoline
-func goColorSchemeTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, outScheme *C.GhosttyColorScheme) C.bool {
+// goColorSchemeTrampoline is the GhosttyTerminalColorSchemeFn. outScheme is
+// a *GhosttyColorScheme to fill in.
+func goColorSchemeTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr, outScheme uintptr) uint8 {
 	t := terminalFromUserdata(userdata)
 	if t.onColorScheme == nil {
-		return C.bool(false)
+		return cFalse
 	}
 	scheme, ok := t.onColorScheme(t)
 	if !ok {
-		return C.bool(false)
+		return cFalse
 	}
-	*outScheme = C.GhosttyColorScheme(scheme)
-	return C.bool(true)
+	*(*vt.GhosttyColorScheme)(unsafe.Pointer(outScheme)) = vt.GhosttyColorScheme(scheme)
+	return cTrue
 }
 
-//export goDeviceAttributesTrampoline
-func goDeviceAttributesTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, outAttrs *C.GhosttyDeviceAttributes) C.bool {
+// goDeviceAttributesTrampoline is the GhosttyTerminalDeviceAttributesFn.
+// outAttrs is a *GhosttyDeviceAttributes to fill in.
+func goDeviceAttributesTrampoline(_ *libc.TLS, _ uintptr, userdata uintptr, outAttrs uintptr) uint8 {
 	t := terminalFromUserdata(userdata)
 	if t.onDeviceAttributes == nil {
-		return C.bool(false)
+		return cFalse
 	}
 	attrs, ok := t.onDeviceAttributes(t)
 	if !ok {
-		return C.bool(false)
+		return cFalse
 	}
+	out := (*vt.GhosttyDeviceAttributes)(unsafe.Pointer(outAttrs))
 
 	// Primary (DA1).
-	outAttrs.primary.conformance_level = C.uint16_t(attrs.Primary.ConformanceLevel)
-	outAttrs.primary.num_features = C.size_t(attrs.Primary.NumFeatures)
+	out.Fprimary.Fconformance_level = attrs.Primary.ConformanceLevel
+	out.Fprimary.Fnum_features = uint64(attrs.Primary.NumFeatures)
 	for i := 0; i < attrs.Primary.NumFeatures && i < 64; i++ {
-		outAttrs.primary.features[i] = C.uint16_t(attrs.Primary.Features[i])
+		out.Fprimary.Ffeatures[i] = attrs.Primary.Features[i]
 	}
 
 	// Secondary (DA2).
-	outAttrs.secondary.device_type = C.uint16_t(attrs.Secondary.DeviceType)
-	outAttrs.secondary.firmware_version = C.uint16_t(attrs.Secondary.FirmwareVersion)
-	outAttrs.secondary.rom_cartridge = C.uint16_t(attrs.Secondary.ROMCartridge)
+	out.Fsecondary.Fdevice_type = attrs.Secondary.DeviceType
+	out.Fsecondary.Ffirmware_version = attrs.Secondary.FirmwareVersion
+	out.Fsecondary.From_cartridge = attrs.Secondary.ROMCartridge
 
 	// Tertiary (DA3).
-	outAttrs.tertiary.unit_id = C.uint32_t(attrs.Tertiary.UnitID)
+	out.Ftertiary.Funit_id = attrs.Tertiary.UnitID
 
-	return C.bool(true)
+	return cTrue
 }
 
 // effectString copies data into C memory allocated via the libghostty
@@ -836,7 +688,7 @@ func goDeviceAttributesTrampoline(_ C.GhosttyTerminal, userdata unsafe.Pointer, 
 // GhosttyString pointing to it. The previous effectBuf is freed.
 // Returns a zero-length GhosttyString if data is empty or the
 // allocation fails.
-func (t *Terminal) effectString(data []byte) C.GhosttyString {
+func (t *Terminal) effectString(data []byte) vt.GhosttyString {
 	if t.effectBuf != nil {
 		Free(t.effectBuf, t.effectBufLen)
 		t.effectBuf = nil
@@ -844,7 +696,7 @@ func (t *Terminal) effectString(data []byte) C.GhosttyString {
 	}
 
 	if len(data) == 0 {
-		return C.GhosttyString{}
+		return vt.GhosttyString{}
 	}
 
 	n := uintptr(len(data))
@@ -854,13 +706,13 @@ func (t *Terminal) effectString(data []byte) C.GhosttyString {
 		// so there is no way to report an error. An empty string
 		// sends no reply, which is better than crashing when memory
 		// runs out.
-		return C.GhosttyString{}
+		return vt.GhosttyString{}
 	}
 	copy(unsafe.Slice((*byte)(cmem), n), data)
 	t.effectBuf = cmem
 	t.effectBufLen = n
-	return C.GhosttyString{
-		ptr: (*C.uint8_t)(cmem),
-		len: C.size_t(n),
+	return vt.GhosttyString{
+		Fptr:  uintptr(cmem),
+		Flen1: uint64(n),
 	}
 }

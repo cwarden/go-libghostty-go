@@ -1,9 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // TrackedGridRef is an owned grid reference that follows its cell as the
 // terminal changes. Obtain one from [Terminal.TrackGridRef] and release it
@@ -16,24 +17,28 @@ import "C"
 // Set.
 // C: GhosttyTrackedGridRef
 type TrackedGridRef struct {
-	ptr C.GhosttyTrackedGridRef
+	ptr vt.GhosttyTrackedGridRef
 }
 
 // Close frees the tracked grid reference. Passing an already-closed tracked
 // reference is safe; after Close, the reference must not be used again.
 func (g *TrackedGridRef) Close() {
-	if g == nil || g.ptr == nil {
+	if g == nil || g.ptr == 0 {
 		return
 	}
-	C.ghostty_tracked_grid_ref_free(g.ptr)
-	g.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_tracked_grid_ref_free(tls, g.ptr)
+	g.ptr = 0
 }
 
 // HasValue reports whether the tracked grid reference currently has a
 // meaningful location. It returns false after the owning terminal is closed or
 // after the tracked cell is discarded.
 func (g *TrackedGridRef) HasValue() bool {
-	return bool(C.ghostty_tracked_grid_ref_has_value(g.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return vt.Xghostty_tracked_grid_ref_has_value(tls, g.ptr) != 0
 }
 
 // Point converts the tracked grid reference to a point in the requested
@@ -41,22 +46,30 @@ func (g *TrackedGridRef) HasValue() bool {
 // represented in that coordinate system, this returns an error with
 // ResultNoValue.
 func (g *TrackedGridRef) Point(tag PointTag) (Point, error) {
-	var coord C.GhosttyPointCoordinate
-	if err := resultError(C.ghostty_tracked_grid_ref_point(
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(vt.GhosttyPointCoordinate{}))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	if err := resultError(vt.Xghostty_tracked_grid_ref_point(
+		tls,
 		g.ptr,
-		C.GhosttyPointTag(tag),
-		&coord,
+		vt.GhosttyPointTag(tag),
+		out,
 	)); err != nil {
 		return Point{}, err
 	}
-	return pointFromC(tag, coord), nil
+	return pointFromC(tag, *(*vt.GhosttyPointCoordinate)(unsafe.Pointer(out))), nil
 }
 
 // Set moves the tracked grid reference to a new point in its owning terminal.
 // The terminal must be the same terminal that originally created the tracked
 // reference. On success, any prior no-value state is cleared.
 func (g *TrackedGridRef) Set(t *Terminal, point Point) error {
-	return resultError(C.ghostty_tracked_grid_ref_set(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_tracked_grid_ref_set(
+		tls,
 		g.ptr,
 		t.ptr,
 		point.toC(),
@@ -68,9 +81,13 @@ func (g *TrackedGridRef) Set(t *Terminal, point Point) error {
 // as [Terminal.GridRef]: use it immediately and do not retain it across later
 // terminal mutations.
 func (g *TrackedGridRef) Snapshot() (*GridRef, error) {
-	var ref C.GhosttyGridRef
-	if err := resultError(C.ghostty_tracked_grid_ref_snapshot(g.ptr, &ref)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	n := int(unsafe.Sizeof(vt.GhosttyGridRef{}))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	if err := resultError(vt.Xghostty_tracked_grid_ref_snapshot(tls, g.ptr, out)); err != nil {
 		return nil, err
 	}
-	return &GridRef{ref: ref}, nil
+	return &GridRef{ref: *(*vt.GhosttyGridRef)(unsafe.Pointer(out))}, nil
 }

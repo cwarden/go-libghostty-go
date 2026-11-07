@@ -1,64 +1,33 @@
 # In-repo Buildkite pipeline. The Buildkite-side pipeline only needs
 # one step that does `buildkite-agent pipeline upload`; everything
 # real lives here.
-
-# Shared retry policy. Building libghostty-vt invokes `zig build`,
-# which fetches Zig package dependencies (e.g. freetype) over HTTPS
-# from deps.files.ghostty.org. Those fetches occasionally fail with
-# transient errors like `HttpConnectionClosing`. The
-# `.buildkite/scripts/retry-on-zig-fetch` wrapper detects those
-# specific failures in the command output and re-exits with 75
-# (EX_TEMPFAIL); we retry only on that exit code so real build
-# failures still fail fast.
-_retry: &retry
-  retry:
-    automatic:
-      - exit_status: 75
-        limit: 2
+#
+# The package is pure Go (internal/vt is the translation of
+# libghostty-vt that generator.go produces and commits), so every step
+# needs only the Go toolchain from the flake's dev shell.
 
 steps:
   - label: ":go: fmt"
-    # Mirror the original GitHub Actions check: `gofmt -l` lists files
-    # that would be reformatted, so we fail the build if that list is
-    # non-empty. Using `nix develop -c` ensures the same `go` toolchain
-    # the rest of the pipeline uses.
+    # `gofmt -l` lists files that would be reformatted, so we fail the
+    # build if that list is non-empty. Using `nix develop -c` ensures
+    # the same `go` toolchain the rest of the pipeline uses.
     command: nix develop -c sh -c 'test -z "$(gofmt -l .)"'
 
+  - label: ":go: vet"
+    command: nix develop -c make lint
+
   - label: ":go: test"
-    <<: *retry
-    # Build libghostty via cmake (`make build`) and then run the full
-    # Go test suite. Both happen inside the flake's dev shell so the
-    # toolchain (cmake, go, zig for cgo) matches local development.
-    command: |
-      .buildkite/scripts/retry-on-zig-fetch nix develop -c make build
-      nix develop -c make test
+    command: nix develop -c make test
 
-  - label: ":package: build (static)"
-    <<: *retry
-    # Default cgo build: statically links libghostty-vt. Confirms the
-    # standard build path still compiles end-to-end.
-    command: |
-      .buildkite/scripts/retry-on-zig-fetch nix develop -c make build
-      nix develop -c go build ./...
-
-  - label: ":package: build (shared)"
-    <<: *retry
-    # `-tags dynamic` swaps the cgo wiring to link the shared
-    # libghostty-vt. Verified separately because the linker flags and
-    # symbol resolution differ from the static build.
-    command: |
-      .buildkite/scripts/retry-on-zig-fetch nix develop -c make build
-      nix develop -c go build -tags dynamic ./...
+  - label: ":package: build"
+    command: nix develop -c go build ./...
 
   - label: ":go: example {{matrix}}"
-    <<: *retry
     # One step per example program under examples/. Each example is a
     # standalone main package that exercises a slice of the bindings,
     # so running them all is the cheapest end-to-end smoke test we
     # have. Keep this list in sync with `ls examples/`.
-    command: |
-      .buildkite/scripts/retry-on-zig-fetch nix develop -c make build
-      nix develop -c go run ./examples/{{matrix}}/
+    command: nix develop -c go run ./examples/{{matrix}}/
     matrix:
       - build-info
       - colors
@@ -70,20 +39,13 @@ steps:
       - render
       - snapshot
 
-  - label: ":zig: cross {{matrix}}"
-    <<: *retry
-    # Cross-compile the package for each supported GOOS/GOARCH using
-    # `zig cc` as the cgo compiler (see Makefile `cross-<target>`
-    # rules). This catches platform-specific cgo and linker issues
-    # without needing native runners for every target.
-    command: .buildkite/scripts/retry-on-zig-fetch nix develop -c make cross-{{matrix}}
+  - label: ":go: cross {{matrix}}"
+    # Cross-compile the package for each platform generated code is
+    # committed for. No C toolchain is involved.
+    command: nix develop -c sh -c 'GOOS=$(echo {{matrix}} | cut -d/ -f1) GOARCH=$(echo {{matrix}} | cut -d/ -f2) go build ./...'
     matrix:
-      - linux-amd64
-      - linux-arm64
-      - macos-amd64
-      - macos-arm64
-      - windows-amd64
-      - windows-arm64
+      - linux/amd64
+      - linux/arm64
 
   # Block the mirror step until every build/test step above has
   # passed. We never want to publish a broken main to the public

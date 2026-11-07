@@ -2,10 +2,11 @@
 
 Go bindings for `libghostty-vt`.
 
-This project uses [cgo](https://pkg.go.dev/cmd/cgo) but `libghostty-vt`
-only depends on libc, so it is very easy to static link and very
-easy to cross-compile. The bindings default to static linking for this
-reason.
+This package is pure Go. `libghostty-vt` is compiled into it: Zig's C
+backend emits the library as C, and [ccgo](https://modernc.org/ccgo)
+translates that C to Go on top of [modernc.org/libc](https://modernc.org/libc).
+Building a program that uses it needs only the Go toolchain, and
+cross-compiling is `GOOS=... GOARCH=... go build`.
 
 > [!WARNING]
 >
@@ -19,34 +20,34 @@ reason.
 package main
 
 import (
- "fmt"
- "log"
+	"fmt"
+	"log"
 
- "go.mitchellh.com/libghostty"
+	"go.mitchellh.com/libghostty"
 )
 
 func main() {
- term, err := libghostty.NewTerminal(libghostty.WithSize(80, 24))
- if err != nil {
-  log.Fatal(err)
- }
- defer term.Close()
+	term, err := libghostty.NewTerminal(libghostty.WithSize(80, 24))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer term.Close()
 
- // Feed VT data — bold green "world", then plain text.
- fmt.Fprintf(term, "Hello, \033[1;32mworld\033[0m!\r\n")
+	// Feed VT data — bold green "world", then plain text.
+	fmt.Fprintf(term, "Hello, \033[1;32mworld\033[0m!\r\n")
 
- // Format the terminal contents as plain text.
- f, err := libghostty.NewFormatter(term,
-  libghostty.WithFormatterFormat(libghostty.FormatterFormatPlain),
-  libghostty.WithFormatterTrim(true),
- )
- if err != nil {
-  log.Fatal(err)
- }
- defer f.Close()
+	// Format the terminal contents as plain text.
+	f, err := libghostty.NewFormatter(term,
+		libghostty.WithFormatterFormat(libghostty.FormatterFormatPlain),
+		libghostty.WithFormatterTrim(true),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
 
- output, _ := f.FormatString()
- fmt.Println(output) // Hello, world!
+	output, _ := f.FormatString()
+	fmt.Println(output) // Hello, world!
 }
 ```
 
@@ -60,84 +61,110 @@ Add the module to your Go project:
 go get go.mitchellh.com/libghostty
 ```
 
-This is a cgo package that links `libghostty-vt` via `pkg-config`. By
-default it links statically. Before building your project, you need the
-library installed. Either install it system-wide or set `PKG_CONFIG_PATH`
-to point to a local checkout:
+Generated code is committed for Linux on amd64 and arm64. On other
+platforms the package does not build; generating code for another
+platform is described under Regenerating.
 
-```shell
-export PKG_CONFIG_PATH=/path/to/libghostty-vt/lib/pkgconfig
-```
+## Performance
 
-To link dynamically instead (requires the shared library at runtime,
-so you'll also need to set the library path):
+The translation runs slower than the cgo build did. These are
+`go test -bench` results on one machine (Linux, Intel i7-14700HX, Go
+1.26), the previous cgo build (commit e247028, libghostty-vt built with
+`-Doptimize=ReleaseFast`) against this one; both measured with `-count 3`,
+and runs vary by about 20%, so read the ratios as rough.
 
-```shell
-go build -tags dynamic
-```
+| Benchmark | cgo | pure Go | ratio |
+| --- | ---: | ---: | ---: |
+| VTWriteCall (one call, no bytes) | 44 ns | 441 ns | 10× |
+| VTWrite/Plain | 251 µs | 1.88 ms | 7× |
+| VTWrite/OSCDense | 785 µs | 5.99 ms | 8× |
+| FormatterVTWriteTo/Plain80x24 | 10.4 µs | 78 µs | 7× |
+| FormatterVTWriteTo/Mixed240x80 | 108 µs | 732 µs | 7× |
+| RenderStateUpdate/Text/Clean | 70 ns | 1.10 µs | 16× |
+| RenderStateUpdate/Text/Row | 169 ns | 2.93 µs | 17× |
+| RenderStateUpdate/Text/Scroll | 903 ns | 4.52 µs | 5× |
+| RenderStateRowCellsGetMulti/Keys1 | 156 ns | 273 ns | 1.8× |
+| RenderStateRowText/Plain/AppendText | 14.5 µs | 93 µs | 6× |
+| RenderStateRowText/Plain/PerCell | 169 µs | 257 µs | 1.5× |
+| RenderStateImageFrame/Fixed/Always | 1.49 µs | 6.39 µs | 4× |
+| SnapshotEncode/PlainNoScrollback/ReuseBuffer | 2.9 µs | 117 µs | 40× |
+| SnapshotEncode/Plain10KScrollback/ReuseBuffer | 415 µs | 32.7 ms | 79× |
+| SnapshotDecode/PlainNoScrollback/Full/ZeroCopy | 29 µs | 160 µs | 6× |
+| SnapshotDecode/Plain10KScrollback/Full/ZeroCopy | 2.2 ms | 38 ms | 17× |
+| geometric mean over all 122 benchmarks | 10.1 µs | 56.9 µs | 5.6× |
 
-See the [Ghostty docs](https://ghostty.org/docs/install/build) for
-building `libghostty-vt` from source.
+Two things account for most of the difference. The translated code is
+plain Go with no SIMD: Zig's vectorized scanning of cells and the
+hardware CRC32C instruction are replaced by scalar loops and the
+table-driven software CRC (a profile of snapshot encoding spends half its
+time in `crc32c_Software_updateMulti` and most of the rest in the
+per-cell encoding loop). And each translated function allocates its C
+stack frame from a per-call TLS stack, which matters for the many small
+calls a render state update makes. The bindings themselves add little:
+taking a TLS from the pool costs about 10 ns, pinning an input slice about
+50 ns, and a getter such as `Terminal.CursorX` costs 23 ns through the
+bindings against 6 ns for the translated function alone
+(`BenchmarkLibraryCall` and `BenchmarkLibraryCallRaw`).
 
-### Cross-Compilation
-
-Because `libghostty-vt` only depends on libc, cross-compilation is
-straightforward using [Zig](https://ziglang.org/) as the C compiler.
-Zig is already required to build `libghostty-vt`, so no extra tooling
-is needed. You don't need to write any Zig code, we're just using
-Zig as a C/C++ compiler.
-
-First, build `libghostty-vt` for your target (from the ghostty source tree):
-
-```shell
-zig build -Demit-lib-vt -Dtarget=x86_64-linux-gnu --prefix /tmp/ghostty-linux-amd64
-```
-
-Then cross-compile your Go project with `zig cc`:
-
-```shell
-CGO_ENABLED=1 \
-GOOS=linux GOARCH=amd64 \
-CC="zig cc -target x86_64-linux-gnu" \
-CXX="zig c++ -target x86_64-linux-gnu" \
-CGO_CFLAGS="-I/tmp/ghostty-linux-amd64/include -DGHOSTTY_STATIC" \
-CGO_LDFLAGS="-L/tmp/ghostty-linux-amd64/lib -lghostty-vt" \
-go build ./...
-```
-
-Supported targets include `x86_64-linux-gnu`, `aarch64-linux-gnu`,
-`x86_64-macos`, `aarch64-macos`, `x86_64-windows-gnu`, and
-`aarch64-windows-gnu`.
-
-If you are using ghostty's CMake integration via `FetchContent`, the
-`ghostty_vt_add_target()` function handles the zig build for you:
-
-```cmake
-FetchContent_MakeAvailable(ghostty)
-ghostty_vt_add_target(NAME linux-amd64 ZIG_TARGET x86_64-linux-gnu)
-```
-
-See the [ghostty CMakeLists.txt](https://github.com/ghostty-org/ghostty/blob/main/CMakeLists.txt)
-for full documentation of `ghostty_vt_add_target()`.
+`make bench` runs every benchmark; `make bench BENCH_FLAGS="-count 5"`
+passes extra flags, and `benchstat` compares two result files.
 
 ## Development
-
-CMake fetches and builds `libghostty-vt` automatically. CMake is only
-required and used for development of this module. For actual downstream
-usage, you can get `libghostty-vt` available however you like (e.g. system
-package, local checkout, etc.).
-
-You need [Zig 0.17.0](https://ghostty.org/docs/install/build) or newer and
-CMake on your PATH. The Nix development shell provides the required versions.
 
 ```shell
 make build
 make test
-
-# If in a Nix dev shell:
-go build
-go test
 ```
 
-If you use the Nix dev shell (`nix develop`), `go build` and `go test`
-work directly — the shell configures all paths automatically.
+Both need only Go. The Nix development shell (`nix develop`) also
+provides the Zig version the generator needs.
+
+### Regenerating
+
+The translated library lives in `internal/vt`: `vt_<goos>_<goarch>_<n>.go`
+(the library, split into files small enough for the Go compiler) and
+`consts.go` (the `GHOSTTY_*` constants and the C API types, from the
+headers). `generator.go` produces them:
+
+```shell
+make generate        # the host platform
+make generate-all    # every platform in the Makefile's TARGETS
+```
+
+The generator needs Zig 0.17, `curl`, `tar` and `patch`, and network
+access: it downloads the ghostty source at the commit pinned in
+`generator.go` and Zig fetches the library's dependencies. Linux targets
+can be generated on any Linux host because modernc.org/libc ships their C
+headers. Regenerate and commit when the pinned commit, the patches, or the
+pinned ccgo and libc versions change. Two runs on the same inputs produce
+files that differ in the order of the string literal table, which ccgo
+assigns in map iteration order.
+
+The generator applies the patches in `internal/patches` to the ghostty
+source in file name order:
+
+| Patch | Contents |
+| --- | --- |
+| `01-link-libc.patch` | Link libc into libghostty-vt so that it allocates with `malloc` instead of `mmap` and raw system calls, which Zig emits as inline assembly. |
+| `02-std-zlib.patch` | Decode zlib streams (Kitty graphics compression) with `std.compress.flate` instead of wuffs. The wuffs decoder is written as a coroutine that jumps into loops, which has no translation to Go. The replacement checks the Adler-32 trailer, which the standard decompressor reads without verifying. |
+
+`internal/ccgo` holds what the generator adds to the emitted C: a patch
+to Zig's `zig.h` support header, a prelude with the libc headers, and the
+128-bit integer helpers of compiler-rt. `internal/libshim` is a Go
+package the translation links against for the C functions modernc.org/libc
+lacks (pointer-sized atomics, some overflow builtins, `posix_memalign`).
+
+Environment variables honoured by the generator:
+
+| Variable | Effect |
+| --- | --- |
+| `GO_GENERATE_DIR` | work directory (the Makefile uses /tmp/libghostty-generate); the ghostty tarball is cached there |
+| `GO_GENERATE_KEEP` | keep a temporary work directory |
+| `GO_GENERATE_GOOS`, `GO_GENERATE_GOARCH` | target platform (default: the host's) |
+| `GO_GENERATE_ZIG` | the zig executable (default: `zig` from PATH) |
+
+### Updating libghostty
+
+Change `ghosttyCommit` in `generator.go`, run `make generate-all`, and
+adjust the bindings to the new headers, which the generator leaves at
+`$GO_GENERATE_DIR/out-<goarch>/include/ghostty/`.

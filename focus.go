@@ -4,15 +4,12 @@ package libghostty
 // sequences (CSI I / CSI O) for focus reporting mode (mode 1004).
 // Wraps the C API from focus.h.
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
-
 import (
 	"encoding"
 	"fmt"
-	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // Compile-time assertions that FocusEvent implements the standard
@@ -30,10 +27,10 @@ type FocusEvent int
 
 const (
 	// FocusGained indicates the terminal window gained focus.
-	FocusGained FocusEvent = C.GHOSTTY_FOCUS_GAINED
+	FocusGained FocusEvent = vt.GHOSTTY_FOCUS_GAINED
 
 	// FocusLost indicates the terminal window lost focus.
-	FocusLost FocusEvent = C.GHOSTTY_FOCUS_LOST
+	FocusLost FocusEvent = vt.GHOSTTY_FOCUS_LOST
 )
 
 // String returns a human-friendly name for the focus event:
@@ -86,17 +83,21 @@ func ParseFocusEvent(s string) (FocusEvent, error) {
 // FocusEncode encodes a focus event into a terminal escape sequence
 // and returns the result as a byte slice.
 func FocusEncode(event FocusEvent) ([]byte, error) {
-	// Focus sequences are short (CSI I or CSI O = 3 bytes).
-	var buf [16]byte
-	var outLen C.size_t
-	result := C.ghostty_focus_encode(
-		C.GhosttyFocusEvent(event),
-		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
-		C.size_t(len(buf)),
-		&outLen,
-	)
+	encode := func(tls *libc.TLS, buf uintptr, bufLen uint64, written uintptr) vt.GhosttyResult {
+		return vt.Xghostty_focus_encode(
+			tls,
+			vt.GhosttyFocusEvent(event),
+			buf,
+			bufLen,
+			written,
+		)
+	}
 
-	if result == C.GHOSTTY_SUCCESS {
+	// Focus sequences are short (CSI I or CSI O = 3 bytes).
+	buf := make([]byte, 16)
+	result, outLen := encodeInto(buf, encode)
+
+	if result == vt.GHOSTTY_SUCCESS {
 		if outLen == 0 {
 			return nil, nil
 		}
@@ -105,15 +106,10 @@ func FocusEncode(event FocusEvent) ([]byte, error) {
 		return out, nil
 	}
 
-	if result == C.GHOSTTY_OUT_OF_SPACE {
+	if result == vt.GHOSTTY_OUT_OF_SPACE {
 		dynBuf := make([]byte, outLen)
-		var written C.size_t
-		if err := resultError(C.ghostty_focus_encode(
-			C.GhosttyFocusEvent(event),
-			(*C.uint8_t)(unsafe.Pointer(&dynBuf[0])),
-			outLen,
-			&written,
-		)); err != nil {
+		result, written := encodeInto(dynBuf, encode)
+		if err := resultError(result); err != nil {
 			return nil, err
 		}
 		if written == 0 {

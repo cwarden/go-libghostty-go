@@ -169,12 +169,12 @@ func TestTrackedGridRefClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tracked.ptr == nil {
+	if tracked.ptr == 0 {
 		t.Fatal("expected tracked ref pointer before close")
 	}
 
 	tracked.Close()
-	if tracked.ptr != nil {
+	if tracked.ptr != 0 {
 		t.Fatal("expected tracked ref pointer to be nil after close")
 	}
 

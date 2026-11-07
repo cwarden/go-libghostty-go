@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
 )
 
 // The tests in this file check that the package never stores a pointer
@@ -116,10 +118,7 @@ func TestStringArrayUninitializedMemory(t *testing.T) {
 		}
 	}
 
-	// Test files cannot import "C", so take the element size from the
-	// array's own pointer type.
-	var a cGhosttyStringArray
-	size := uintptr(len(values)) * unsafe.Sizeof(*a.ptr)
+	size := uintptr(len(values)) * unsafe.Sizeof(vt.GhosttyString{})
 
 	for range uninitRounds {
 		fillFreedBlocks(size, bad)
@@ -144,10 +143,7 @@ func TestClipboardContentsUninitializedMemory(t *testing.T) {
 		}
 	}
 
-	// Test files cannot import "C", so take the element size from the
-	// array's own pointer type.
-	var c cGhosttyClipboardContents
-	size := uintptr(len(values)) * unsafe.Sizeof(*c.ptr)
+	size := uintptr(len(values)) * unsafe.Sizeof(vt.GhosttyClipboardContent{})
 
 	for range uninitRounds {
 		// The clipboard array and the string array behind it have

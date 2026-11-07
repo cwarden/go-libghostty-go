@@ -1,41 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-
-// ghostty_go_vt_write_until_result returns the result of
-// ghostty_terminal_vt_write_until to Go by value. Passing a Go pointer for
-// the GhosttyTerminalWriteStop out parameter would move it to the Go heap
-// on every call, and callers make one call per boundary while processing
-// all of a terminal's output.
-typedef struct {
-	GhosttyResult result;
-	GhosttyTerminalWriteStop stop;
-} ghostty_go_vt_write_until_result;
-
-static inline ghostty_go_vt_write_until_result
-ghostty_go_terminal_vt_write_until(
-	GhosttyTerminal terminal,
-	const uint8_t* data,
-	size_t len,
-	uint32_t boundaries
-) {
-	ghostty_go_vt_write_until_result out;
-	out.stop = GHOSTTY_INIT_SIZED(GhosttyTerminalWriteStop);
-	out.result = ghostty_terminal_vt_write_until(
-		terminal,
-		data,
-		len,
-		boundaries,
-		&out.stop);
-	return out;
-}
-*/
-import "C"
-
 import (
-	"runtime/cgo"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // Terminal wraps a Ghostty VT terminal handle.
@@ -51,11 +20,11 @@ import (
 // the VT stream waits for their replies.
 // C: GhosttyTerminal
 type Terminal struct {
-	ptr C.GhosttyTerminal
+	ptr uintptr
 
 	// handle identifies the terminal to effect callbacks. It is initialized
 	// lazily because terminals without effects do not need C userdata.
-	handle cgo.Handle
+	handle handle
 
 	onWritePty            WritePtyFn
 	onBell                BellFn
@@ -223,13 +192,13 @@ type ClipboardLocation int
 
 const (
 	// ClipboardLocationStandard identifies the standard system clipboard.
-	ClipboardLocationStandard ClipboardLocation = C.GHOSTTY_CLIPBOARD_LOCATION_STANDARD
+	ClipboardLocationStandard ClipboardLocation = vt.GHOSTTY_CLIPBOARD_LOCATION_STANDARD
 
 	// ClipboardLocationSelection identifies the selection clipboard.
-	ClipboardLocationSelection ClipboardLocation = C.GHOSTTY_CLIPBOARD_LOCATION_SELECTION
+	ClipboardLocationSelection ClipboardLocation = vt.GHOSTTY_CLIPBOARD_LOCATION_SELECTION
 
 	// ClipboardLocationPrimary identifies the primary selection clipboard.
-	ClipboardLocationPrimary ClipboardLocation = C.GHOSTTY_CLIPBOARD_LOCATION_PRIMARY
+	ClipboardLocationPrimary ClipboardLocation = vt.GHOSTTY_CLIPBOARD_LOCATION_PRIMARY
 )
 
 // ClipboardContent is one MIME representation of clipboard content. Data is
@@ -274,22 +243,22 @@ type ClipboardWriteResult int
 
 const (
 	// ClipboardWriteSuccess means the clipboard write completed successfully.
-	ClipboardWriteSuccess ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS
+	ClipboardWriteSuccess ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS
 
 	// ClipboardWriteDenied means policy or the user denied the write.
-	ClipboardWriteDenied ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_DENIED
+	ClipboardWriteDenied ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_DENIED
 
 	// ClipboardWriteUnsupported means the destination or a representation is unsupported.
-	ClipboardWriteUnsupported ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED
+	ClipboardWriteUnsupported ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED
 
 	// ClipboardWriteBusy means the clipboard is temporarily unavailable.
-	ClipboardWriteBusy ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_BUSY
+	ClipboardWriteBusy ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_BUSY
 
 	// ClipboardWriteInvalidData means one or more representations contain invalid data.
-	ClipboardWriteInvalidData ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA
+	ClipboardWriteInvalidData ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA
 
 	// ClipboardWriteIOError means the clipboard write failed due to an I/O error.
-	ClipboardWriteIOError ClipboardWriteResult = C.GHOSTTY_CLIPBOARD_WRITE_RESULT_IO_ERROR
+	ClipboardWriteIOError ClipboardWriteResult = vt.GHOSTTY_CLIPBOARD_WRITE_RESULT_IO_ERROR
 )
 
 // ClipboardWriteReply answers a clipboard write request. Remember is honored
@@ -353,20 +322,20 @@ type ClipboardReadResult int
 const (
 	// ClipboardReadSuccess means the clipboard was read and the reply carries
 	// its contents.
-	ClipboardReadSuccess ClipboardReadResult = C.GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS
+	ClipboardReadSuccess ClipboardReadResult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS
 
 	// ClipboardReadDenied means policy or the user denied the read.
-	ClipboardReadDenied ClipboardReadResult = C.GHOSTTY_CLIPBOARD_READ_RESULT_DENIED
+	ClipboardReadDenied ClipboardReadResult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_DENIED
 
 	// ClipboardReadUnsupported means the embedder cannot read this clipboard.
-	ClipboardReadUnsupported ClipboardReadResult = C.GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED
+	ClipboardReadUnsupported ClipboardReadResult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED
 
 	// ClipboardReadBusy means the clipboard is temporarily unavailable.
-	ClipboardReadBusy ClipboardReadResult = C.GHOSTTY_CLIPBOARD_READ_RESULT_BUSY
+	ClipboardReadBusy ClipboardReadResult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_BUSY
 
 	// ClipboardReadIOError means reading the clipboard failed due to an I/O
 	// error.
-	ClipboardReadIOError ClipboardReadResult = C.GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR
+	ClipboardReadIOError ClipboardReadResult = vt.GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR
 )
 
 // ClipboardReadReply answers a clipboard read request. On success, Contents
@@ -433,19 +402,19 @@ type TerminalProgressState int
 
 const (
 	// TerminalProgressStateRemove requests removal of any progress indication.
-	TerminalProgressStateRemove TerminalProgressState = C.GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE
+	TerminalProgressStateRemove TerminalProgressState = vt.GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE
 
 	// TerminalProgressStateSet reports determinate progress.
-	TerminalProgressStateSet TerminalProgressState = C.GHOSTTY_TERMINAL_PROGRESS_STATE_SET
+	TerminalProgressStateSet TerminalProgressState = vt.GHOSTTY_TERMINAL_PROGRESS_STATE_SET
 
 	// TerminalProgressStateError reports failed progress.
-	TerminalProgressStateError TerminalProgressState = C.GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR
+	TerminalProgressStateError TerminalProgressState = vt.GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR
 
 	// TerminalProgressStateIndeterminate reports progress without a percentage.
-	TerminalProgressStateIndeterminate TerminalProgressState = C.GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE
+	TerminalProgressStateIndeterminate TerminalProgressState = vt.GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE
 
 	// TerminalProgressStatePause reports paused progress.
-	TerminalProgressStatePause TerminalProgressState = C.GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE
+	TerminalProgressStatePause TerminalProgressState = vt.GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE
 )
 
 // TerminalProgressReport is a progress update emitted by the running program
@@ -477,28 +446,28 @@ const (
 	// ProgramStatusStateIdle means the program is waiting for the user to
 	// tell it what to do next, such as an interactive tool sitting at its
 	// own prompt.
-	ProgramStatusStateIdle ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_IDLE
+	ProgramStatusStateIdle ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_IDLE
 
 	// ProgramStatusStateWorking means the program is busy and doesn't need
 	// the user. The report may include a progress percentage.
-	ProgramStatusStateWorking ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_WORKING
+	ProgramStatusStateWorking ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_WORKING
 
 	// ProgramStatusStateDone means the program finished its work and the
 	// result is ready for the user to look at.
-	ProgramStatusStateDone ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_DONE
+	ProgramStatusStateDone ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_DONE
 
 	// ProgramStatusStateBlocked means the program can't continue until the
 	// user does something. The report's Kind says what the program needs and
 	// its Message says why. The report may include a progress percentage.
-	ProgramStatusStateBlocked ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED
+	ProgramStatusStateBlocked ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED
 
 	// ProgramStatusStateError means the program failed and stopped.
-	ProgramStatusStateError ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_ERROR
+	ProgramStatusStateError ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_ERROR
 
 	// ProgramStatusStateClear doesn't describe the program. Instead, it asks
 	// the application to remove the record with the report's ID along with
 	// every record beneath it. If the ID is empty, remove every record.
-	ProgramStatusStateClear ProgramStatusState = C.GHOSTTY_PROGRAM_STATUS_STATE_CLEAR
+	ProgramStatusStateClear ProgramStatusState = vt.GHOSTTY_PROGRAM_STATUS_STATE_CLEAR
 )
 
 // ProgramStatusKind describes what a blocked program needs from the user,
@@ -513,19 +482,19 @@ type ProgramStatusKind int
 const (
 	// ProgramStatusKindNone means the program didn't say what it needs, or
 	// the program isn't blocked.
-	ProgramStatusKindNone ProgramStatusKind = C.GHOSTTY_PROGRAM_STATUS_KIND_NONE
+	ProgramStatusKindNone ProgramStatusKind = vt.GHOSTTY_PROGRAM_STATUS_KIND_NONE
 
 	// ProgramStatusKindPermission means the program is asking the user to
 	// approve something, such as "Apply these changes?".
-	ProgramStatusKindPermission ProgramStatusKind = C.GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION
+	ProgramStatusKindPermission ProgramStatusKind = vt.GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION
 
 	// ProgramStatusKindQuestion means the program is waiting for the user to
 	// type an answer.
-	ProgramStatusKindQuestion ProgramStatusKind = C.GHOSTTY_PROGRAM_STATUS_KIND_QUESTION
+	ProgramStatusKindQuestion ProgramStatusKind = vt.GHOSTTY_PROGRAM_STATUS_KIND_QUESTION
 
 	// ProgramStatusKindAuth means the program needs a login, password, token,
 	// or other credential.
-	ProgramStatusKindAuth ProgramStatusKind = C.GHOSTTY_PROGRAM_STATUS_KIND_AUTH
+	ProgramStatusKindAuth ProgramStatusKind = vt.GHOSTTY_PROGRAM_STATUS_KIND_AUTH
 )
 
 // ProgramStatus is a report from a program about what it is doing.
@@ -672,23 +641,23 @@ type SemanticPromptKind int
 
 const (
 	// SemanticPromptInvalid is the zero value. It is never reported.
-	SemanticPromptInvalid SemanticPromptKind = C.GHOSTTY_SEMANTIC_PROMPT_INVALID
+	SemanticPromptInvalid SemanticPromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_INVALID
 
 	// SemanticPromptStart means the shell started drawing a prompt. The
 	// event's PromptKind field says which prompt it is.
-	SemanticPromptStart SemanticPromptKind = C.GHOSTTY_SEMANTIC_PROMPT_PROMPT_START
+	SemanticPromptStart SemanticPromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_PROMPT_START
 
 	// SemanticPromptInputStart means the prompt is complete and the user can
 	// start typing a command.
-	SemanticPromptInputStart SemanticPromptKind = C.GHOSTTY_SEMANTIC_PROMPT_INPUT_START
+	SemanticPromptInputStart SemanticPromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_INPUT_START
 
 	// SemanticPromptOutputStart means the user submitted a command and it
 	// started running. Everything the terminal receives after this event is
 	// output from that command.
-	SemanticPromptOutputStart SemanticPromptKind = C.GHOSTTY_SEMANTIC_PROMPT_OUTPUT_START
+	SemanticPromptOutputStart SemanticPromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_OUTPUT_START
 
 	// SemanticPromptCommandEnd means the command finished running.
-	SemanticPromptCommandEnd SemanticPromptKind = C.GHOSTTY_SEMANTIC_PROMPT_COMMAND_END
+	SemanticPromptCommandEnd SemanticPromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_COMMAND_END
 )
 
 // PromptKind identifies which prompt a shell is drawing when it reports
@@ -704,21 +673,21 @@ type PromptKind int
 const (
 	// PromptPrimary is the main prompt shown before each command. It is also
 	// used when the shell does not say which prompt it is drawing.
-	PromptPrimary PromptKind = C.GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY
+	PromptPrimary PromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY
 
 	// PromptRight is a prompt drawn at the right edge of the line, such as
 	// the RPROMPT variable in zsh.
-	PromptRight PromptKind = C.GHOSTTY_SEMANTIC_PROMPT_PROMPT_RIGHT
+	PromptRight PromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_PROMPT_RIGHT
 
 	// PromptContinuation is a prompt at the start of each extra line of a
 	// command that spans more than one line.
-	PromptContinuation PromptKind = C.GHOSTTY_SEMANTIC_PROMPT_PROMPT_CONTINUATION
+	PromptContinuation PromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_PROMPT_CONTINUATION
 
 	// PromptSecondary is a prompt for an extra line of input, such as the PS2
 	// variable in bash. Shells differ in whether they report extra lines as
 	// continuation or secondary prompts, so most applications should treat
 	// PromptContinuation and PromptSecondary the same way.
-	PromptSecondary PromptKind = C.GHOSTTY_SEMANTIC_PROMPT_PROMPT_SECONDARY
+	PromptSecondary PromptKind = vt.GHOSTTY_SEMANTIC_PROMPT_PROMPT_SECONDARY
 )
 
 // TerminalSemanticPrompt describes one step of a shell command, as reported
@@ -811,7 +780,7 @@ const (
 	// WindowResizeGrid asks for the window to be resized so that the
 	// terminal is a given number of rows and columns. The requested size is
 	// in the Rows and Columns fields of the [WindowResize].
-	WindowResizeGrid WindowResizeKind = C.GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID
+	WindowResizeGrid WindowResizeKind = vt.GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID
 )
 
 // WindowResize is a request from the running program to resize the window
@@ -873,10 +842,10 @@ type TerminalUnknownSequenceTag int
 const (
 	// TerminalUnknownSequenceAPC identifies an unsupported Application Program
 	// Command sequence.
-	TerminalUnknownSequenceAPC TerminalUnknownSequenceTag = C.GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC
+	TerminalUnknownSequenceAPC TerminalUnknownSequenceTag = vt.GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC
 
 	// TerminalUnknownSequenceOSC identifies an unsupported Operating System Command.
-	TerminalUnknownSequenceOSC TerminalUnknownSequenceTag = C.GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_OSC
+	TerminalUnknownSequenceOSC TerminalUnknownSequenceTag = vt.GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_OSC
 )
 
 // TerminalUnknownStringSequence contains one unsupported string sequence.
@@ -1310,48 +1279,43 @@ func NewTerminal(opts ...TerminalOption) (*Terminal, error) {
 		opt(&cfg)
 	}
 
-	var cterm C.GhosttyTerminal
-	if err := resultError(C.ghostty_terminal_new(
-		nil,
-		&cterm,
-		C.uint16_t(cfg.Cols),
-		C.uint16_t(cfg.Rows),
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// The handle is returned through TLS memory, as every out-parameter is.
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	if err := resultError(vt.Xghostty_terminal_new(
+		tls,
+		0,
+		out,
+		cfg.Cols,
+		cfg.Rows,
 	)); err != nil {
 		return nil, err
 	}
+	cterm := *(*uintptr)(unsafe.Pointer(out))
 
 	// Apply explicitly configured scrollback limits. Omitting either option
 	// retains libghostty's constructor default for that limit.
 	if cfg.MaxScrollbackBytes != nil {
-		maxBytes := C.size_t(*cfg.MaxScrollbackBytes)
-		if err := resultError(C.ghostty_terminal_set(
-			cterm,
-			C.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
-			unsafe.Pointer(&maxBytes),
-		)); err != nil {
-			C.ghostty_terminal_free(cterm)
+		if err := terminalSet(tls, cterm, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+			uint64(*cfg.MaxScrollbackBytes)); err != nil {
+			vt.Xghostty_terminal_free(tls, cterm)
 			return nil, err
 		}
 	}
 	if cfg.MaxScrollbackLines != nil {
-		maxLines := C.size_t(*cfg.MaxScrollbackLines)
-		if err := resultError(C.ghostty_terminal_set(
-			cterm,
-			C.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
-			unsafe.Pointer(&maxLines),
-		)); err != nil {
-			C.ghostty_terminal_free(cterm)
+		if err := terminalSet(tls, cterm, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
+			uint64(*cfg.MaxScrollbackLines)); err != nil {
+			vt.Xghostty_terminal_free(tls, cterm)
 			return nil, err
 		}
 	}
 	if cfg.ContinuationMaxBytes != nil {
-		limit := C.size_t(*cfg.ContinuationMaxBytes)
-		if err := resultError(C.ghostty_terminal_set(
-			cterm,
-			C.GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
-			unsafe.Pointer(&limit),
-		)); err != nil {
-			C.ghostty_terminal_free(cterm)
+		if err := terminalSet(tls, cterm, vt.GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
+			uint64(*cfg.ContinuationMaxBytes)); err != nil {
+			vt.Xghostty_terminal_free(tls, cterm)
 			return nil, err
 		}
 	}
@@ -1420,7 +1384,7 @@ func NewTerminal(opts ...TerminalOption) (*Terminal, error) {
 // terminalFromC wraps a caller-owned C terminal. Restored terminals use the
 // same lifecycle and effect support as terminals created by NewTerminal.
 // Effect callback data is initialized lazily by syncEffects.
-func terminalFromC(cterm C.GhosttyTerminal, cfg TerminalConfig) *Terminal {
+func terminalFromC(cterm uintptr, cfg TerminalConfig) *Terminal {
 	return &Terminal{
 		ptr:                   cterm,
 		onWritePty:            cfg.onWritePty,
@@ -1445,19 +1409,39 @@ func terminalFromC(cterm C.GhosttyTerminal, cfg TerminalConfig) *Terminal {
 	}
 }
 
-// Close frees the underlying terminal handle and releases the cgo.Handle.
-// After this call, the terminal must not be used, except that calling
-// Close again is a safe no-op.
+// terminalSet passes value to ghostty_terminal_set for option. The value is
+// copied to TLS memory for the call, because libghostty reads it through
+// a pointer and must not be given the address of a Go variable (see
+// ccgo.go). T must not contain Go pointers.
+func terminalSet[T any](tls *libc.TLS, term uintptr, option vt.GhosttyTerminalOption, value T) error {
+	n := int(unsafe.Sizeof(value))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*T)(unsafe.Pointer(p)) = value
+	return resultError(vt.Xghostty_terminal_set(tls, term, option, p))
+}
+
+// terminalSetNull passes a NULL value to ghostty_terminal_set for option,
+// which clears or resets the option.
+func terminalSetNull(tls *libc.TLS, term uintptr, option vt.GhosttyTerminalOption) error {
+	return resultError(vt.Xghostty_terminal_set(tls, term, option, 0))
+}
+
+// Close frees the underlying terminal handle and releases the callback
+// handle. After this call, the terminal must not be used, except that
+// calling Close again is a safe no-op.
 func (t *Terminal) Close() {
-	if t == nil || t.ptr == nil {
+	if t == nil || t.ptr == 0 {
 		return
 	}
 	if t.handle != 0 {
-		t.handle.Delete()
+		t.handle.delete()
 		t.handle = 0
 	}
-	C.ghostty_terminal_free(t.ptr)
-	t.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_terminal_free(tls, t.ptr)
+	t.ptr = 0
 	if t.effectBuf != nil {
 		Free(t.effectBuf, t.effectBufLen)
 		t.effectBuf = nil
@@ -1472,7 +1456,9 @@ func (t *Terminal) Close() {
 // If synchronized output is active, Reset ends the render hold and calls
 // the [RenderHoldFunc] with held false before returning.
 func (t *Terminal) Reset() {
-	C.ghostty_terminal_reset(t.ptr)
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_terminal_reset(tls, t.ptr)
 }
 
 // Resize changes the terminal dimensions.
@@ -1492,12 +1478,15 @@ func (t *Terminal) Reset() {
 // Calling Resize with the current cols and rows leaves the screen contents
 // unchanged, but everything else described above still happens.
 func (t *Terminal) Resize(cols, rows uint16, cellWidthPx, cellHeightPx uint32) error {
-	return resultError(C.ghostty_terminal_resize(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_terminal_resize(
+		tls,
 		t.ptr,
-		C.uint16_t(cols),
-		C.uint16_t(rows),
-		C.uint32_t(cellWidthPx),
-		C.uint32_t(cellHeightPx),
+		cols,
+		rows,
+		cellWidthPx,
+		cellHeightPx,
 	))
 }
 
@@ -1509,10 +1498,10 @@ type TerminalCompressionMode int
 const (
 	// TerminalCompressionIncremental performs one bounded step suitable for
 	// an idle callback.
-	TerminalCompressionIncremental TerminalCompressionMode = C.GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL
+	TerminalCompressionIncremental TerminalCompressionMode = vt.GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL
 
 	// TerminalCompressionFull synchronously scans all eligible pages.
-	TerminalCompressionFull TerminalCompressionMode = C.GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL
+	TerminalCompressionFull TerminalCompressionMode = vt.GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL
 )
 
 // TerminalCompressionResult describes whether a compression pass needs more
@@ -1523,42 +1512,50 @@ type TerminalCompressionResult int
 const (
 	// TerminalCompressionUnsupported means retained-mapping reclamation is
 	// unavailable on this target.
-	TerminalCompressionUnsupported TerminalCompressionResult = C.GHOSTTY_TERMINAL_COMPRESSION_RESULT_UNSUPPORTED
+	TerminalCompressionUnsupported TerminalCompressionResult = vt.GHOSTTY_TERMINAL_COMPRESSION_RESULT_UNSUPPORTED
 
 	// TerminalCompressionPending means another incremental step should run
 	// while the terminal remains idle.
-	TerminalCompressionPending TerminalCompressionResult = C.GHOSTTY_TERMINAL_COMPRESSION_RESULT_PENDING
+	TerminalCompressionPending TerminalCompressionResult = vt.GHOSTTY_TERMINAL_COMPRESSION_RESULT_PENDING
 
 	// TerminalCompressionComplete means no continuation is needed until the
 	// activity token changes.
-	TerminalCompressionComplete TerminalCompressionResult = C.GHOSTTY_TERMINAL_COMPRESSION_RESULT_COMPLETE
+	TerminalCompressionComplete TerminalCompressionResult = vt.GHOSTTY_TERMINAL_COMPRESSION_RESULT_COMPLETE
 )
 
 // CompressionActivity returns the opaque scrollback-compression activity
 // token. Only equality comparisons between tokens are meaningful.
 func (t *Terminal) CompressionActivity() (uint64, error) {
-	var activity C.uint64_t
-	if err := resultError(C.ghostty_terminal_compression_activity(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	if err := resultError(vt.Xghostty_terminal_compression_activity(
+		tls,
 		t.ptr,
-		&activity,
+		out,
 	)); err != nil {
 		return 0, err
 	}
-	return uint64(activity), nil
+	return *(*uint64)(unsafe.Pointer(out)), nil
 }
 
 // Compress performs caller-driven scrollback compression. Calls must be
 // serialized with all other access to the terminal.
 func (t *Terminal) Compress(mode TerminalCompressionMode) (TerminalCompressionResult, error) {
-	var result C.GhosttyTerminalCompressionResult
-	if err := resultError(C.ghostty_terminal_compress(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	if err := resultError(vt.Xghostty_terminal_compress(
+		tls,
 		t.ptr,
-		C.GhosttyTerminalCompressionMode(mode),
-		&result,
+		vt.GhosttyTerminalCompressionMode(mode),
+		out,
 	)); err != nil {
 		return 0, err
 	}
-	return TerminalCompressionResult(result), nil
+	return TerminalCompressionResult(*(*vt.GhosttyTerminalCompressionResult)(unsafe.Pointer(out))), nil
 }
 
 // VTWrite feeds raw VT-encoded bytes through the terminal's parser,
@@ -1570,7 +1567,11 @@ func (t *Terminal) VTWrite(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	C.ghostty_terminal_vt_write(t.ptr, (*C.uint8_t)(&data[0]), C.size_t(len(data)))
+	tls := getTLS()
+	defer putTLS(tls)
+	ptr, unpin := pinBytes(data)
+	defer unpin()
+	vt.Xghostty_terminal_vt_write(tls, t.ptr, ptr, uint64(len(data)))
 }
 
 // VTWriteUntil is like [Terminal.VTWrite], but it stops right after the
@@ -1622,32 +1623,48 @@ func (t *Terminal) VTWrite(data []byte) {
 // on the same terminal.
 // C: ghostty_terminal_vt_write_until
 func (t *Terminal) VTWriteUntil(data []byte, boundaries TerminalBoundary) (TerminalWriteStop, error) {
-	var ptr *C.uint8_t
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var ptr uintptr
 	if len(data) > 0 {
-		ptr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+		var unpin func()
+		ptr, unpin = pinBytes(data)
+		defer unpin()
 	}
 
-	out := C.ghostty_go_terminal_vt_write_until(
+	// The stop is a sized struct: libghostty reads its size field and
+	// fills in the fields it knows. It lives in TLS memory, so this method
+	// does not allocate on the Go heap.
+	const stopSize = int(unsafe.Sizeof(vt.GhosttyTerminalWriteStop{}))
+	stopPtr := tls.Alloc(stopSize)
+	defer tls.Free(stopSize)
+	stop := (*vt.GhosttyTerminalWriteStop)(unsafe.Pointer(stopPtr))
+	*stop = vt.GhosttyTerminalWriteStop{Fsize: uint64(stopSize)}
+
+	result := vt.Xghostty_terminal_vt_write_until(
+		tls,
 		t.ptr,
 		ptr,
-		C.size_t(len(data)),
-		C.uint32_t(boundaries),
+		uint64(len(data)),
+		uint32(boundaries),
+		stopPtr,
 	)
 
 	// GHOSTTY_NO_VALUE means all input was consumed without reaching a
 	// boundary. That is a normal result, not an error, and the stop already
 	// reports it with Reached set to zero.
-	if out.result != C.GHOSTTY_SUCCESS && out.result != C.GHOSTTY_NO_VALUE {
-		return TerminalWriteStop{}, resultError(out.result)
+	if result != vt.GHOSTTY_SUCCESS && result != vt.GHOSTTY_NO_VALUE {
+		return TerminalWriteStop{}, resultError(result)
 	}
 
 	return TerminalWriteStop{
-		Consumed:   int(out.stop.consumed),
-		Reached:    TerminalBoundary(out.stop.reached),
-		Kind:       TerminalStringKind(out.stop.kind),
-		Introducer: TerminalStringIntroducer(out.stop.introducer),
-		End:        TerminalStringEnd(out.stop.end),
-		Byte:       byte(out.stop.byte),
+		Consumed:   int(stop.Fconsumed),
+		Reached:    TerminalBoundary(stop.Freached),
+		Kind:       TerminalStringKind(stop.Fkind),
+		Introducer: TerminalStringIntroducer(stop.Fintroducer),
+		End:        TerminalStringEnd(stop.Fend),
+		Byte:       byte(stop.Fbyte1),
 	}, nil
 }
 
@@ -1664,56 +1681,64 @@ type ScrollViewportTag int
 
 const (
 	// ScrollViewportTop scrolls to the top of scrollback.
-	ScrollViewportTop ScrollViewportTag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_TOP
+	ScrollViewportTop ScrollViewportTag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_TOP
 
 	// ScrollViewportBottom scrolls to the bottom (active area).
-	ScrollViewportBottom ScrollViewportTag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM
+	ScrollViewportBottom ScrollViewportTag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM
 
 	// ScrollViewportDelta scrolls by a delta amount (up is negative).
-	ScrollViewportDelta ScrollViewportTag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA
+	ScrollViewportDelta ScrollViewportTag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA
 
 	// ScrollViewportRow scrolls to an absolute row offset in the same
 	// coordinate space as [Scrollbar.Offset].
-	ScrollViewportRow ScrollViewportTag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_ROW
+	ScrollViewportRow ScrollViewportTag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_ROW
 
 	// ScrollViewportPrompt scrolls by a number of shell prompts instead of
 	// a number of rows (up is negative). See [Terminal.ScrollViewportPrompt].
-	ScrollViewportPrompt ScrollViewportTag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA_PROMPT
+	ScrollViewportPrompt ScrollViewportTag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA_PROMPT
 )
 
 // ScrollViewportTop scrolls the terminal viewport to the top of scrollback.
 func (t *Terminal) ScrollViewportTop() error {
-	var sv C.GhosttyTerminalScrollViewport
-	sv.tag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_TOP
-	return resultError(C.ghostty_terminal_scroll_viewport(t.ptr, sv))
+	var sv vt.GhosttyTerminalScrollViewport
+	sv.Ftag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_TOP
+	return t.scrollViewport(sv)
+}
+
+// scrollViewport passes a scroll request to libghostty. The struct is
+// passed by value, so it needs no C memory.
+func (t *Terminal) scrollViewport(sv vt.GhosttyTerminalScrollViewport) error {
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_terminal_scroll_viewport(tls, t.ptr, sv))
 }
 
 // ScrollViewportBottom scrolls the terminal viewport to the bottom
 // (active area).
 func (t *Terminal) ScrollViewportBottom() error {
-	var sv C.GhosttyTerminalScrollViewport
-	sv.tag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM
-	return resultError(C.ghostty_terminal_scroll_viewport(t.ptr, sv))
+	var sv vt.GhosttyTerminalScrollViewport
+	sv.Ftag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM
+	return t.scrollViewport(sv)
 }
 
 // ScrollViewportDelta scrolls the terminal viewport by the given delta
 // (negative for up, positive for down).
 func (t *Terminal) ScrollViewportDelta(delta int) error {
-	var sv C.GhosttyTerminalScrollViewport
-	sv.tag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA
+	var sv vt.GhosttyTerminalScrollViewport
+	sv.Ftag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA
 	// Set the delta in the value union. The delta field is at offset 0.
-	*(*C.intptr_t)(unsafe.Pointer(&sv.value[0])) = C.intptr_t(delta)
-	return resultError(C.ghostty_terminal_scroll_viewport(t.ptr, sv))
+	*(*int64)(unsafe.Pointer(&sv.Fvalue)) = int64(delta)
+	return t.scrollViewport(sv)
 }
 
 // ScrollViewportRow scrolls the viewport to an absolute row offset from the
 // top of the scrollable area. The value is clamped to the available range.
 func (t *Terminal) ScrollViewportRow(row uint) error {
-	var sv C.GhosttyTerminalScrollViewport
-	sv.tag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_ROW
+	var sv vt.GhosttyTerminalScrollViewport
+	sv.Ftag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_ROW
 	// Set the row in the value union. The row field is at offset 0.
-	*(*C.size_t)(unsafe.Pointer(&sv.value[0])) = C.size_t(row)
-	return resultError(C.ghostty_terminal_scroll_viewport(t.ptr, sv))
+	*(*uint64)(unsafe.Pointer(&sv.Fvalue)) = uint64(row)
+	return t.scrollViewport(sv)
 }
 
 // ScrollViewportPrompt scrolls the viewport by delta shell prompts and
@@ -1732,12 +1757,12 @@ func (t *Terminal) ScrollViewportRow(row uint) error {
 // stops at the last one it finds. Moving down past the last prompt can
 // scroll all the way to the bottom of the screen, where new output appears.
 func (t *Terminal) ScrollViewportPrompt(delta int) error {
-	var sv C.GhosttyTerminalScrollViewport
-	sv.tag = C.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA_PROMPT
+	var sv vt.GhosttyTerminalScrollViewport
+	sv.Ftag = vt.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_DELTA_PROMPT
 	// Set the prompt delta in the value union. The delta_prompt field is
 	// at offset 0.
-	*(*C.intptr_t)(unsafe.Pointer(&sv.value[0])) = C.intptr_t(delta)
-	return resultError(C.ghostty_terminal_scroll_viewport(t.ptr, sv))
+	*(*int64)(unsafe.Pointer(&sv.Fvalue)) = int64(delta)
+	return t.scrollViewport(sv)
 }
 
 // TerminalBoundary is a point in the VT stream where [Terminal.VTWriteUntil]
@@ -1762,7 +1787,7 @@ const (
 	//
 	// If the stream is already at ground, VTWriteUntil stops right away
 	// and consumes nothing.
-	TerminalBoundaryGround TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_GROUND
+	TerminalBoundaryGround TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_GROUND
 
 	// TerminalBoundaryAPCStart is the byte that starts an APC string. That
 	// is '_' after ESC, or the single byte 0x9F.
@@ -1770,31 +1795,31 @@ const (
 	// SOS and PM strings report this boundary too, because the terminal
 	// treats all three the same way. Use [TerminalWriteStop.Byte] to tell
 	// them apart.
-	TerminalBoundaryAPCStart TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_APC_START
+	TerminalBoundaryAPCStart TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_APC_START
 
 	// TerminalBoundaryAPCEnd is the byte that ends an APC, SOS, or PM
 	// string.
-	TerminalBoundaryAPCEnd TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_APC_END
+	TerminalBoundaryAPCEnd TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_APC_END
 
 	// TerminalBoundaryDCSStart is the byte that starts a DCS string. That
 	// is 'P' after ESC, or the single byte 0x90. The DCS header comes right
 	// after this byte, followed by the content. For "ESC P 1;2|data ESC \",
 	// the header is "1;2|" and the content is "data".
-	TerminalBoundaryDCSStart TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_DCS_START
+	TerminalBoundaryDCSStart TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_DCS_START
 
 	// TerminalBoundaryDCSEnd is the byte that ends a DCS string. A DCS
 	// string can end before its header is complete, in which case it has
 	// no content.
-	TerminalBoundaryDCSEnd TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_DCS_END
+	TerminalBoundaryDCSEnd TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_DCS_END
 
 	// TerminalBoundaryOSCStart is the byte that starts an OSC string. That
 	// is ']' after ESC, or the single byte 0x9D.
-	TerminalBoundaryOSCStart TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_OSC_START
+	TerminalBoundaryOSCStart TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_OSC_START
 
 	// TerminalBoundaryOSCEnd is the byte that ends an OSC string. It is
 	// reported for every OSC string, including ones the terminal does not
 	// recognize.
-	TerminalBoundaryOSCEnd TerminalBoundary = C.GHOSTTY_TERMINAL_BOUNDARY_OSC_END
+	TerminalBoundaryOSCEnd TerminalBoundary = vt.GHOSTTY_TERMINAL_BOUNDARY_OSC_END
 )
 
 // TerminalStringKind is the kind of a control string.
@@ -1805,15 +1830,15 @@ const (
 	// TerminalStringKindAPC is an APC, SOS, or PM string. To tell which,
 	// check [TerminalWriteStop.Byte] when the string starts. It is '_' or
 	// 0x9F for APC, 'X' or 0x98 for SOS, and '^' or 0x9E for PM.
-	TerminalStringKindAPC TerminalStringKind = C.GHOSTTY_TERMINAL_STRING_KIND_APC
+	TerminalStringKindAPC TerminalStringKind = vt.GHOSTTY_TERMINAL_STRING_KIND_APC
 
 	// TerminalStringKindDCS is a DCS string. It starts with 'P' after ESC,
 	// or the single byte 0x90.
-	TerminalStringKindDCS TerminalStringKind = C.GHOSTTY_TERMINAL_STRING_KIND_DCS
+	TerminalStringKindDCS TerminalStringKind = vt.GHOSTTY_TERMINAL_STRING_KIND_DCS
 
 	// TerminalStringKindOSC is an OSC string. It starts with ']' after ESC,
 	// or the single byte 0x9D.
-	TerminalStringKindOSC TerminalStringKind = C.GHOSTTY_TERMINAL_STRING_KIND_OSC
+	TerminalStringKindOSC TerminalStringKind = vt.GHOSTTY_TERMINAL_STRING_KIND_OSC
 )
 
 // TerminalStringIntroducer is how a control string started.
@@ -1825,7 +1850,7 @@ const (
 	// followed by one byte, such as '_' or ']'. Only that second byte is
 	// counted in [TerminalWriteStop.Consumed], because the ESC may have
 	// been passed in an earlier call.
-	TerminalStringIntroducerESC TerminalStringIntroducer = C.GHOSTTY_TERMINAL_STRING_INTRODUCER_ESC
+	TerminalStringIntroducerESC TerminalStringIntroducer = vt.GHOSTTY_TERMINAL_STRING_INTRODUCER_ESC
 
 	// TerminalStringIntroducerC1 means the string started with a single
 	// 8-bit byte, such as 0x9F or 0x9D.
@@ -1833,7 +1858,7 @@ const (
 	// When the stream is at ground, these bytes are read as part of UTF-8
 	// text and do not start a string. They only start a string when they
 	// arrive inside another escape sequence.
-	TerminalStringIntroducerC1 TerminalStringIntroducer = C.GHOSTTY_TERMINAL_STRING_INTRODUCER_C1
+	TerminalStringIntroducerC1 TerminalStringIntroducer = vt.GHOSTTY_TERMINAL_STRING_INTRODUCER_C1
 )
 
 // TerminalStringEnd is how a control string ended.
@@ -1849,7 +1874,7 @@ const (
 	// the terminator. If you forward strings to another program, the ESC
 	// is part of the bytes you have already consumed, so forward it along
 	// with the string.
-	TerminalStringEndESC TerminalStringEnd = C.GHOSTTY_TERMINAL_STRING_END_ST_ESC
+	TerminalStringEndESC TerminalStringEnd = vt.GHOSTTY_TERMINAL_STRING_END_ST_ESC
 
 	// TerminalStringEndST means the string ended with the single-byte
 	// string terminator 0x9C. The stream is back at ground.
@@ -1857,12 +1882,12 @@ const (
 	// Inside an OSC string, and inside a DCS string after its header, 0x9C
 	// is treated as content. So this only ends an APC string or a DCS
 	// string that is still in its header.
-	TerminalStringEndST TerminalStringEnd = C.GHOSTTY_TERMINAL_STRING_END_ST_C1
+	TerminalStringEndST TerminalStringEnd = vt.GHOSTTY_TERMINAL_STRING_END_ST_C1
 
 	// TerminalStringEndCanceled means the string was canceled by CAN (0x18)
 	// or SUB (0x1A). The stream is back at ground. The terminal discards a
 	// canceled APC or OSC, so its command does not run.
-	TerminalStringEndCanceled TerminalStringEnd = C.GHOSTTY_TERMINAL_STRING_END_CANCELLED
+	TerminalStringEndCanceled TerminalStringEnd = vt.GHOSTTY_TERMINAL_STRING_END_CANCELLED
 
 	// TerminalStringEndAborted means another 8-bit control byte interrupted
 	// the string. If that byte starts a new control string, the same stop
@@ -1872,11 +1897,11 @@ const (
 	// Like [TerminalStringEndST], this only ends an APC string or a DCS
 	// string that is still in its header. The terminal discards an aborted
 	// APC, just like a canceled one.
-	TerminalStringEndAborted TerminalStringEnd = C.GHOSTTY_TERMINAL_STRING_END_ABORTED
+	TerminalStringEndAborted TerminalStringEnd = vt.GHOSTTY_TERMINAL_STRING_END_ABORTED
 
 	// TerminalStringEndBEL means the string ended with BEL (0x07). Only OSC
 	// strings end this way.
-	TerminalStringEndBEL TerminalStringEnd = C.GHOSTTY_TERMINAL_STRING_END_BEL
+	TerminalStringEndBEL TerminalStringEnd = vt.GHOSTTY_TERMINAL_STRING_END_BEL
 )
 
 // TerminalWriteStop describes where [Terminal.VTWriteUntil] stopped and why.
@@ -1929,10 +1954,10 @@ type TerminalScreen int
 
 const (
 	// ScreenPrimary is the primary (normal) screen.
-	ScreenPrimary TerminalScreen = C.GHOSTTY_TERMINAL_SCREEN_PRIMARY
+	ScreenPrimary TerminalScreen = vt.GHOSTTY_TERMINAL_SCREEN_PRIMARY
 
 	// ScreenAlternate is the alternate screen.
-	ScreenAlternate TerminalScreen = C.GHOSTTY_TERMINAL_SCREEN_ALTERNATE
+	ScreenAlternate TerminalScreen = vt.GHOSTTY_TERMINAL_SCREEN_ALTERNATE
 )
 
 // Scrollbar holds the scrollbar state for the terminal viewport.
@@ -2046,15 +2071,19 @@ type ScreenMemoryUsage struct {
 // [Terminal.VTWrite] or [Terminal.Reset]). Serialize use of the
 // returned handle with mutations of the terminal.
 func (t *Terminal) KittyGraphics() (*KittyGraphics, error) {
-	var ptr C.GhosttyKittyGraphics
-	if err := resultError(C.ghostty_terminal_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	if err := resultError(vt.Xghostty_terminal_get(
+		tls,
 		t.ptr,
-		C.GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
-		unsafe.Pointer(&ptr),
+		vt.GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+		out,
 	)); err != nil {
 		return nil, err
 	}
-	return &KittyGraphics{ptr: ptr}, nil
+	return &KittyGraphics{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // GridRef resolves a point in the terminal grid to a grid reference.
@@ -2065,15 +2094,20 @@ func (t *Terminal) KittyGraphics() (*KittyGraphics, error) {
 // PointTagScreen and PointTagHistory may be expensive for large
 // scrollback buffers.
 func (t *Terminal) GridRef(point Point) (*GridRef, error) {
-	var ref C.GhosttyGridRef
-	if err := resultError(C.ghostty_terminal_grid_ref(
+	tls := getTLS()
+	defer putTLS(tls)
+	const refSize = int(unsafe.Sizeof(vt.GhosttyGridRef{}))
+	out := tls.Alloc(refSize)
+	defer tls.Free(refSize)
+	if err := resultError(vt.Xghostty_terminal_grid_ref(
+		tls,
 		t.ptr,
 		point.toC(),
-		&ref,
+		out,
 	)); err != nil {
 		return nil, err
 	}
-	return &GridRef{ref: ref}, nil
+	return &GridRef{ref: *(*vt.GhosttyGridRef)(unsafe.Pointer(out))}, nil
 }
 
 // TrackGridRef creates an owned tracked grid reference for a terminal
@@ -2086,15 +2120,19 @@ func (t *Terminal) GridRef(point Point) (*GridRef, error) {
 // the tracked handle remains valid only for tracked-grid-ref APIs: it
 // reports no value and can still be closed.
 func (t *Terminal) TrackGridRef(point Point) (*TrackedGridRef, error) {
-	var ptr C.GhosttyTrackedGridRef
-	if err := resultError(C.ghostty_terminal_grid_ref_track(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	if err := resultError(vt.Xghostty_terminal_grid_ref_track(
+		tls,
 		t.ptr,
 		point.toC(),
-		&ptr,
+		out,
 	)); err != nil {
 		return nil, err
 	}
-	return &TrackedGridRef{ptr: ptr}, nil
+	return &TrackedGridRef{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // PointFromGridRef converts a grid reference back to a point in the
@@ -2103,14 +2141,23 @@ func (t *Terminal) TrackGridRef(point Point) (*TrackedGridRef, error) {
 // in the requested coordinate system, this returns an error with
 // ResultNoValue.
 func (t *Terminal) PointFromGridRef(ref *GridRef, tag PointTag) (Point, error) {
-	var coord C.GhosttyPointCoordinate
-	if err := resultError(C.ghostty_terminal_point_from_grid_ref(
+	tls := getTLS()
+	defer putTLS(tls)
+	const refSize = int(unsafe.Sizeof(vt.GhosttyGridRef{}))
+	refPtr := tls.Alloc(refSize)
+	defer tls.Free(refSize)
+	*(*vt.GhosttyGridRef)(unsafe.Pointer(refPtr)) = ref.ref
+	const coordSize = int(unsafe.Sizeof(vt.GhosttyPointCoordinate{}))
+	coordPtr := tls.Alloc(coordSize)
+	defer tls.Free(coordSize)
+	if err := resultError(vt.Xghostty_terminal_point_from_grid_ref(
+		tls,
 		t.ptr,
-		&ref.ref,
-		C.GhosttyPointTag(tag),
-		&coord,
+		refPtr,
+		vt.GhosttyPointTag(tag),
+		coordPtr,
 	)); err != nil {
 		return Point{}, err
 	}
-	return pointFromC(tag, coord), nil
+	return pointFromC(tag, *(*vt.GhosttyPointCoordinate)(unsafe.Pointer(coordPtr))), nil
 }

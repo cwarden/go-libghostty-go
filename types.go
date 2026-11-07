@@ -1,16 +1,16 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
+)
 
 // ghosttySizeToInt converts a C size to a Go slice length without allowing
 // an overflowing conversion to produce an invalid unsafe.Slice length.
-func ghosttySizeToInt(size C.size_t) (int, bool) {
-	if uint64(size) > uint64(^uint(0)>>1) {
+func ghosttySizeToInt(size uint64) (int, bool) {
+	if size > uint64(^uint(0)>>1) {
 		return 0, false
 	}
 	return int(size), true
@@ -19,26 +19,26 @@ func ghosttySizeToInt(size C.size_t) (int, bool) {
 // copyGhosttyString copies a borrowed, binary-safe GhosttyString into Go
 // memory. Library-produced empty strings point to valid storage, but no
 // bytes need to be read when the length is zero.
-func copyGhosttyString(value C.GhosttyString) ([]byte, bool) {
-	length, ok := ghosttySizeToInt(value.len)
+func copyGhosttyString(value vt.GhosttyString) ([]byte, bool) {
+	length, ok := ghosttySizeToInt(value.Flen1)
 	if !ok {
 		return nil, false
 	}
 	if length == 0 {
 		return []byte{}, true
 	}
-	if value.ptr == nil {
+	if value.Fptr == 0 {
 		return nil, false
 	}
 
-	return append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(value.ptr)), length)...), true
+	return append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(value.Fptr)), length)...), true
 }
 
 // copyGhosttyStringArray copies a borrowed GhosttyString array into Go-owned
 // strings. A nonzero count requires a non-NULL array pointer.
-func copyGhosttyStringArray(values *C.GhosttyString, count C.size_t) ([]string, bool) {
+func copyGhosttyStringArray(values uintptr, count uint64) ([]string, bool) {
 	length, ok := ghosttySizeToInt(count)
-	if !ok || (length > 0 && values == nil) {
+	if !ok || (length > 0 && values == 0) {
 		return nil, false
 	}
 
@@ -46,7 +46,7 @@ func copyGhosttyStringArray(values *C.GhosttyString, count C.size_t) ([]string, 
 	if length == 0 {
 		return result, true
 	}
-	for i, value := range unsafe.Slice(values, length) {
+	for i, value := range unsafe.Slice((*vt.GhosttyString)(unsafe.Pointer(values)), length) {
 		data, valid := copyGhosttyString(value)
 		if !valid {
 			return nil, false
@@ -57,12 +57,12 @@ func copyGhosttyStringArray(values *C.GhosttyString, count C.size_t) ([]string, 
 }
 
 // cGhosttyStringArray owns a C-allocated array of GhosttyString descriptors
-// and the C-allocated byte buffers referenced by those descriptors. Keeping
-// every pointer in C memory satisfies cgo's nested-pointer rules for reply
-// structs passed synchronously to libghostty.
+// and the C-allocated byte buffers referenced by those descriptors. Reply
+// structs passed synchronously to libghostty point to this C memory, which
+// the garbage collector does not move.
 type cGhosttyStringArray struct {
-	ptr            *C.GhosttyString
-	descriptorPtr  unsafe.Pointer
+	// ptr is the C address of the descriptor array, or 0 when empty.
+	ptr            uintptr
 	descriptorSize uintptr
 	buffers        []cGhosttyStringBuffer
 }
@@ -82,24 +82,24 @@ func newCGhosttyStringArray(values [][]byte) (*cGhosttyStringArray, error) {
 		return a, nil
 	}
 
-	elementSize := uintptr(C.sizeof_GhosttyString)
+	elementSize := unsafe.Sizeof(vt.GhosttyString{})
 	if uintptr(len(values)) > ^uintptr(0)/elementSize {
 		return nil, &Error{Result: ResultLimitExceeded}
 	}
 	a.descriptorSize = uintptr(len(values)) * elementSize
 	// Each GhosttyString in the array contains a pointer, so the array
 	// must start out zeroed. See allocZeroed.
-	a.descriptorPtr = allocZeroed(a.descriptorSize)
-	if a.descriptorPtr == nil {
+	descriptorPtr := allocZeroed(a.descriptorSize)
+	if descriptorPtr == nil {
 		return nil, &Error{Result: ResultOutOfMemory}
 	}
-	a.ptr = (*C.GhosttyString)(a.descriptorPtr)
+	a.ptr = uintptr(descriptorPtr)
 	a.buffers = make([]cGhosttyStringBuffer, 0, len(values))
 
-	descriptors := unsafe.Slice(a.ptr, len(values))
+	descriptors := unsafe.Slice((*vt.GhosttyString)(descriptorPtr), len(values))
 	for i, value := range values {
 		if len(value) == 0 {
-			descriptors[i] = C.GhosttyString{}
+			descriptors[i] = vt.GhosttyString{}
 			continue
 		}
 
@@ -111,9 +111,9 @@ func newCGhosttyStringArray(values [][]byte) (*cGhosttyStringArray, error) {
 		}
 		copy(unsafe.Slice((*byte)(ptr), len(value)), value)
 		a.buffers = append(a.buffers, cGhosttyStringBuffer{ptr: ptr, size: size})
-		descriptors[i] = C.GhosttyString{
-			ptr: (*C.uint8_t)(ptr),
-			len: C.size_t(len(value)),
+		descriptors[i] = vt.GhosttyString{
+			Fptr:  uintptr(ptr),
+			Flen1: uint64(len(value)),
 		}
 	}
 
@@ -128,9 +128,8 @@ func (a *cGhosttyStringArray) close() {
 	for _, buffer := range a.buffers {
 		Free(buffer.ptr, buffer.size)
 	}
-	Free(a.descriptorPtr, a.descriptorSize)
-	a.ptr = nil
-	a.descriptorPtr = nil
+	Free(unsafe.Pointer(a.ptr), a.descriptorSize)
+	a.ptr = 0
 	a.descriptorSize = 0
 	a.buffers = nil
 }
@@ -145,16 +144,16 @@ type CursorStyle int
 
 const (
 	// CursorStyleBar is a bar cursor (DECSCUSR 5, 6).
-	CursorStyleBar CursorStyle = C.GHOSTTY_CURSOR_STYLE_BAR
+	CursorStyleBar CursorStyle = vt.GHOSTTY_CURSOR_STYLE_BAR
 
 	// CursorStyleBlock is a block cursor (DECSCUSR 1, 2).
-	CursorStyleBlock CursorStyle = C.GHOSTTY_CURSOR_STYLE_BLOCK
+	CursorStyleBlock CursorStyle = vt.GHOSTTY_CURSOR_STYLE_BLOCK
 
 	// CursorStyleUnderline is an underline cursor (DECSCUSR 3, 4).
-	CursorStyleUnderline CursorStyle = C.GHOSTTY_CURSOR_STYLE_UNDERLINE
+	CursorStyleUnderline CursorStyle = vt.GHOSTTY_CURSOR_STYLE_UNDERLINE
 
 	// CursorStyleBlockHollow is a hollow block cursor.
-	CursorStyleBlockHollow CursorStyle = C.GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW
+	CursorStyleBlockHollow CursorStyle = vt.GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW
 )
 
 // ImageLayer says whether an image is drawn behind or in front of the
@@ -177,14 +176,14 @@ type ImageLayer int
 const (
 	// ImageLayerBelowBackground draws the image behind the cell background
 	// colors (z < INT32_MIN/2).
-	ImageLayerBelowBackground ImageLayer = C.GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND
+	ImageLayerBelowBackground ImageLayer = vt.GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND
 
 	// ImageLayerBelowText draws the image in front of the cell background
 	// colors and behind the text (INT32_MIN/2 <= z < 0).
-	ImageLayerBelowText ImageLayer = C.GHOSTTY_IMAGE_LAYER_BELOW_TEXT
+	ImageLayerBelowText ImageLayer = vt.GHOSTTY_IMAGE_LAYER_BELOW_TEXT
 
 	// ImageLayerAboveText draws the image in front of the text (z >= 0).
-	ImageLayerAboveText ImageLayer = C.GHOSTTY_IMAGE_LAYER_ABOVE_TEXT
+	ImageLayerAboveText ImageLayer = vt.GHOSTTY_IMAGE_LAYER_ABOVE_TEXT
 )
 
 // ImageLayerMask selects any number of image layers. Combine values with |.
@@ -195,13 +194,13 @@ type ImageLayerMask uint32
 
 const (
 	// ImageLayerMaskBelowBackground selects [ImageLayerBelowBackground].
-	ImageLayerMaskBelowBackground ImageLayerMask = C.GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND
+	ImageLayerMaskBelowBackground ImageLayerMask = vt.GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND
 
 	// ImageLayerMaskBelowText selects [ImageLayerBelowText].
-	ImageLayerMaskBelowText ImageLayerMask = C.GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT
+	ImageLayerMaskBelowText ImageLayerMask = vt.GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT
 
 	// ImageLayerMaskAboveText selects [ImageLayerAboveText].
-	ImageLayerMaskAboveText ImageLayerMask = C.GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT
+	ImageLayerMaskAboveText ImageLayerMask = vt.GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT
 
 	// ImageLayerMaskAll selects every layer.
 	ImageLayerMaskAll = ImageLayerMaskBelowBackground | ImageLayerMaskBelowText | ImageLayerMaskAboveText
@@ -213,7 +212,9 @@ const (
 // Consumers should reject unknown schema versions and use this metadata rather
 // than hardcoding ABI details such as [Cell] bit positions.
 func TypeJSON() string {
-	return C.GoString(C.ghostty_type_json())
+	tls := getTLS()
+	defer putTLS(tls)
+	return libc.GoString(vt.Xghostty_type_json(tls))
 }
 
 // SurfacePosition is an x/y position in rendered surface pixel space.
@@ -230,9 +231,9 @@ type SurfacePosition struct {
 }
 
 // toC converts a Go SurfacePosition to a C GhosttySurfacePosition.
-func (p SurfacePosition) toC() C.GhosttySurfacePosition {
-	return C.GhosttySurfacePosition{
-		x: C.double(p.X),
-		y: C.double(p.Y),
+func (p SurfacePosition) toC() vt.GhosttySurfacePosition {
+	return vt.GhosttySurfacePosition{
+		Fx: p.X,
+		Fy: p.Y,
 	}
 }

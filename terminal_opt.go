@@ -3,12 +3,11 @@ package libghostty
 // Terminal option setters wrapping ghostty_terminal_set().
 // Functions are ordered alphabetically.
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // SetEffectWritePty registers (or clears) the write-pty effect on a
 // live terminal. Pass nil to clear.
@@ -155,64 +154,52 @@ func (t *Terminal) SetEffectWindowResize(fn WindowResizeFunc) {
 // SetColorBackground sets the default background color. Pass nil to
 // clear (unset).
 func (t *Terminal) SetColorBackground(c *ColorRGB) error {
-	var val unsafe.Pointer
-	if c != nil {
-		cc := C.GhosttyColorRgb{r: C.uint8_t(c.R), g: C.uint8_t(c.G), b: C.uint8_t(c.B)}
-		val = unsafe.Pointer(&cc)
+	tls := getTLS()
+	defer putTLS(tls)
+	if c == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+		vt.GhosttyColorRgb{Fr: c.R, Fg: c.G, Fb: c.B})
 }
 
 // SetColorCursor sets the default cursor color. Pass nil to clear (unset).
 func (t *Terminal) SetColorCursor(c *ColorRGB) error {
-	var val unsafe.Pointer
-	if c != nil {
-		cc := C.GhosttyColorRgb{r: C.uint8_t(c.R), g: C.uint8_t(c.G), b: C.uint8_t(c.B)}
-		val = unsafe.Pointer(&cc)
+	tls := getTLS()
+	defer putTLS(tls)
+	if c == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_CURSOR)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+		vt.GhosttyColorRgb{Fr: c.R, Fg: c.G, Fb: c.B})
 }
 
 // SetColorForeground sets the default foreground color. Pass nil to
 // clear (unset).
 func (t *Terminal) SetColorForeground(c *ColorRGB) error {
-	var val unsafe.Pointer
-	if c != nil {
-		cc := C.GhosttyColorRgb{r: C.uint8_t(c.R), g: C.uint8_t(c.G), b: C.uint8_t(c.B)}
-		val = unsafe.Pointer(&cc)
+	tls := getTLS()
+	defer putTLS(tls)
+	if c == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+		vt.GhosttyColorRgb{Fr: c.R, Fg: c.G, Fb: c.B})
 }
 
 // SetColorPalette sets the default 256-color palette. Pass nil to reset
 // to the built-in default palette.
 func (t *Terminal) SetColorPalette(palette *Palette) error {
-	var val unsafe.Pointer
-	if palette != nil {
-		// Convert Go palette to C palette.
-		var cp [PaletteSize]C.GhosttyColorRgb
-		for i, c := range palette {
-			cp[i] = C.GhosttyColorRgb{r: C.uint8_t(c.R), g: C.uint8_t(c.G), b: C.uint8_t(c.B)}
-		}
-		val = unsafe.Pointer(&cp[0])
+	tls := getTLS()
+	defer putTLS(tls)
+	if palette == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_PALETTE)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
-		val,
-	))
+	// Convert Go palette to C palette.
+	var cp [PaletteSize]vt.GhosttyColorRgb
+	for i, c := range palette {
+		cp[i] = vt.GhosttyColorRgb{Fr: c.R, Fg: c.G, Fb: c.B}
+	}
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, cp)
 }
 
 // SetContinuationMaxBytes sets the maximum number of replay-safe VT
@@ -220,90 +207,68 @@ func (t *Terminal) SetColorPalette(palette *Palette) error {
 // before writing input that leaves the VT parser or UTF-8 decoder unfinished.
 // A zero limit disables tracking.
 func (t *Terminal) SetContinuationMaxBytes(limit uint) error {
-	v := C.size_t(limit)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, uint64(limit))
 }
 
 // SetDefaultCursorBlink sets whether DECSCUSR reset selects a blinking
 // cursor. Passing nil restores the built-in default of not blinking.
 func (t *Terminal) SetDefaultCursorBlink(blink *bool) error {
-	var val unsafe.Pointer
-	if blink != nil {
-		v := C.bool(*blink)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if blink == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, cBool(*blink))
 }
 
 // SetDefaultCursorStyle sets the cursor style selected by DECSCUSR reset.
 // Passing nil restores the built-in block cursor.
 func (t *Terminal) SetDefaultCursorStyle(style *CursorStyle) error {
-	var val unsafe.Pointer
-	if style != nil {
-		v := C.GhosttyCursorStyle(*style)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if style == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, vt.GhosttyCursorStyle(*style))
 }
 
 // SetGlyphProtocol enables or disables Glyph Protocol APC handling.
 func (t *Terminal) SetGlyphProtocol(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL, cBool(enabled))
 }
 
 // SetAPCMaxBytes sets the maximum bytes the APC handler will buffer for
 // all protocols. Passing nil removes all overrides and reverts to the
 // built-in defaults.
 func (t *Terminal) SetAPCMaxBytes(limit *uint) error {
-	var val unsafe.Pointer
-	if limit != nil {
-		v := C.size_t(*limit)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES, uint64(*limit))
 }
 
 // SetAPCMaxBytesKitty sets the maximum bytes the APC handler will buffer
 // for Kitty graphics protocol data. Passing nil removes the override and
 // reverts to the built-in default.
 func (t *Terminal) SetAPCMaxBytesKitty(limit *uint) error {
-	var val unsafe.Pointer
-	if limit != nil {
-		v := C.size_t(*limit)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY, uint64(*limit))
 }
 
 // SetPwd sets the terminal working directory manually. An empty string
 // clears it.
 func (t *Terminal) SetPwd(pwd string) error {
-	return t.setStringOption(C.GHOSTTY_TERMINAL_OPT_PWD, &pwd)
+	return t.setStringOption(vt.GHOSTTY_TERMINAL_OPT_PWD, &pwd)
 }
 
 // SetSelection sets the active screen selection. Passing nil clears the
@@ -313,19 +278,16 @@ func (t *Terminal) SetPwd(pwd string) error {
 // terminal-owned tracked state, so the Selection value and its untracked
 // grid references do not need to outlive this call.
 func (t *Terminal) SetSelection(sel *Selection) error {
-	var val unsafe.Pointer
-	if sel != nil {
-		var cs C.GhosttySelection
-		cs.start = sel.Start.ref
-		cs.end = sel.End.ref
-		cs.rectangle = C.bool(sel.Rectangle)
-		val = unsafe.Pointer(&cs)
+	tls := getTLS()
+	defer putTLS(tls)
+	if sel == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SELECTION)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_SELECTION,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SELECTION, vt.GhosttySelection{
+		Fstart:     sel.Start.ref,
+		Fend:       sel.End.ref,
+		Frectangle: cBool(sel.Rectangle),
+	})
 }
 
 // SetKittyClipboardWriteMaxBytes sets the maximum number of decoded bytes in
@@ -336,16 +298,12 @@ func (t *Terminal) SetSelection(sel *Selection) error {
 // Pass nil to restore the default limit of 64 MiB. Pass a pointer to the
 // maximum uint value to remove the limit.
 func (t *Terminal) SetKittyClipboardWriteMaxBytes(limit *uint) error {
-	var cValue unsafe.Pointer
-	if limit != nil {
-		cLimit := C.size_t(*limit)
-		cValue = unsafe.Pointer(&cLimit)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES,
-		cValue,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES, uint64(*limit))
 }
 
 // SetKittyImageStorageLimit sets the Kitty image storage limit in bytes.
@@ -354,27 +312,20 @@ func (t *Terminal) SetKittyClipboardWriteMaxBytes(limit *uint) error {
 // images and placements. Pass nil to restore the default of 10 MB
 // (10,000,000 bytes).
 func (t *Terminal) SetKittyImageStorageLimit(limit *uint64) error {
-	var val unsafe.Pointer
-	if limit != nil {
-		v := C.uint64_t(*limit)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, *limit)
 }
 
 // SetKittyImageMediumFile enables or disables Kitty image loading via the
 // file medium.
 func (t *Terminal) SetKittyImageMediumFile(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE, cBool(enabled))
 }
 
 // SetKittyImageMediumTempFile enables Kitty image loading via the temporary
@@ -387,7 +338,7 @@ func (t *Terminal) SetKittyImageMediumFile(enabled bool) error {
 // [Terminal.KittyImageMediumTempFile] then reads back as empty.
 func (t *Terminal) SetKittyImageMediumTempFile(directory *string) error {
 	return t.setStringOption(
-		C.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
+		vt.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
 		directory,
 	)
 }
@@ -395,27 +346,21 @@ func (t *Terminal) SetKittyImageMediumTempFile(directory *string) error {
 // SetKittyImageMediumSharedMem enables or disables Kitty image loading via
 // the shared memory medium.
 func (t *Terminal) SetKittyImageMediumSharedMem(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_SHARED_MEM, cBool(enabled))
 }
 
 // SetMode sets the current value of a terminal mode. It doesn't change the
 // value the mode goes back to when the terminal is reset. Use
 // [Terminal.SetModeDefault] to change that.
 func (t *Terminal) SetMode(mode Mode, value bool) error {
-	config := C.GhosttyTerminalModeConfig{
-		mode:  C.GhosttyMode(mode),
-		value: C.bool(value),
-	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_MODE,
-		unsafe.Pointer(&config),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_MODE, vt.GhosttyTerminalModeConfig{
+		Fmode:  vt.GhosttyMode(mode),
+		Fvalue: cBool(value),
+	})
 }
 
 // SetModeDefault sets both the current value of a terminal mode and the
@@ -427,15 +372,12 @@ func (t *Terminal) SetMode(mode Mode, value bool) error {
 // changed or reflect other terminal state. For those modes, SetModeDefault
 // returns an error matching [ErrInvalidValue].
 func (t *Terminal) SetModeDefault(mode Mode, value bool) error {
-	config := C.GhosttyTerminalModeConfig{
-		mode:  C.GhosttyMode(mode),
-		value: C.bool(value),
-	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
-		unsafe.Pointer(&config),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_MODE_DEFAULT, vt.GhosttyTerminalModeConfig{
+		Fmode:  vt.GhosttyMode(mode),
+		Fvalue: cBool(value),
+	})
 }
 
 // SetScrollbackMaxBytes sets the approximate maximum scrollback allocation
@@ -446,16 +388,12 @@ func (t *Terminal) SetModeDefault(mode Mode, value bool) error {
 // to one page in practice because history is kept in whole pages. Pass a
 // pointer to the maximum uint value to remove the limit.
 func (t *Terminal) SetScrollbackMaxBytes(limit *uint) error {
-	var val unsafe.Pointer
-	if limit != nil {
-		v := C.size_t(*limit)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, uint64(*limit))
 }
 
 // SetResizePullScrollback controls whether a resize may pull rows out of
@@ -474,52 +412,42 @@ func (t *Terminal) SetScrollbackMaxBytes(limit *uint) error {
 // otherwise disagree with the terminal about the screen contents after a
 // resize. This setting is preserved across a full reset (RIS).
 func (t *Terminal) SetResizePullScrollback(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK, cBool(enabled))
 }
 
 // SetScrollbackMaxLines sets the approximate maximum number of physical
 // lines retained in scrollback. Passing nil removes the line limit. Lowering
 // the limit may immediately remove eligible historical pages.
 func (t *Terminal) SetScrollbackMaxLines(limit *uint) error {
-	var val unsafe.Pointer
-	if limit != nil {
-		v := C.size_t(*limit)
-		val = unsafe.Pointer(&v)
+	tls := getTLS()
+	defer putTLS(tls)
+	if limit == nil {
+		return terminalSetNull(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES)
 	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
-		val,
-	))
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, uint64(*limit))
 }
 
 // SetTerminfoName sets the terminfo entry name reported in response to an
 // XTGETTCAP query for TN. The name may contain at most 128 bytes. An empty name
 // clears the configured value and leaves TN queries unanswered.
 func (t *Terminal) SetTerminfoName(name string) error {
-	return t.setStringOption(C.GHOSTTY_TERMINAL_OPT_TERMINFO_NAME, &name)
+	return t.setStringOption(vt.GHOSTTY_TERMINAL_OPT_TERMINFO_NAME, &name)
 }
 
 // SetTitle sets the terminal title manually. An empty string clears it.
 func (t *Terminal) SetTitle(title string) error {
-	return t.setStringOption(C.GHOSTTY_TERMINAL_OPT_TITLE, &title)
+	return t.setStringOption(vt.GHOSTTY_TERMINAL_OPT_TITLE, &title)
 }
 
 // SetTitleReport enables or disables replies to CSI 21 t window-title
 // queries. Reporting is disabled by default because a program can otherwise
 // query a title it previously set and inject that text into the pty stream.
 func (t *Terminal) SetTitleReport(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_TITLE_REPORT,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_TITLE_REPORT, cBool(enabled))
 }
 
 // SetUnknownMaxBytes sets the maximum number of bytes retained for each
@@ -528,12 +456,9 @@ func (t *Terminal) SetTitleReport(enabled bool) error {
 // Register a callback with [Terminal.SetEffectUnknownSequence] to receive the
 // captured data.
 func (t *Terminal) SetUnknownMaxBytes(limit uint) error {
-	v := C.size_t(limit)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES, uint64(limit))
 }
 
 // SetChecksumReport enables or disables replies to screen checksum requests.
@@ -553,12 +478,9 @@ func (t *Terminal) SetUnknownMaxBytes(limit uint) error {
 //
 // C: GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_REPORT
 func (t *Terminal) SetChecksumReport(enabled bool) error {
-	v := C.bool(enabled)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_REPORT,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_REPORT, cBool(enabled))
 }
 
 // SetChecksumFlags sets how screen checksums are calculated. It changes both
@@ -575,23 +497,23 @@ func (t *Terminal) SetChecksumReport(enabled bool) error {
 //
 // C: GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_EXTENSION
 func (t *Terminal) SetChecksumFlags(flags ChecksumFlags) error {
-	v := C.uint8_t(flags)
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		C.GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_EXTENSION,
-		unsafe.Pointer(&v),
-	))
+	tls := getTLS()
+	defer putTLS(tls)
+	return terminalSet(tls, t.ptr, vt.GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_EXTENSION, uint8(flags))
 }
 
 // setStringOption stages a Go string through C-owned memory before passing a
-// GhosttyString descriptor to cgo. ghostty_terminal_set copies string options
-// synchronously, so the temporary allocation can be released on return.
+// GhosttyString descriptor to libghostty. ghostty_terminal_set copies string
+// options synchronously, so the temporary allocation can be released on
+// return.
 func (t *Terminal) setStringOption(
-	option C.GhosttyTerminalOption,
+	option vt.GhosttyTerminalOption,
 	value *string,
 ) error {
+	tls := getTLS()
+	defer putTLS(tls)
 	if value == nil {
-		return resultError(C.ghostty_terminal_set(t.ptr, option, nil))
+		return terminalSetNull(tls, t.ptr, option)
 	}
 
 	length := uintptr(len(*value))
@@ -605,13 +527,8 @@ func (t *Terminal) setStringOption(
 		defer Free(ptr, length)
 	}
 
-	s := C.GhosttyString{
-		ptr: (*C.uint8_t)(ptr),
-		len: C.size_t(length),
-	}
-	return resultError(C.ghostty_terminal_set(
-		t.ptr,
-		option,
-		unsafe.Pointer(&s),
-	))
+	return terminalSet(tls, t.ptr, option, vt.GhosttyString{
+		Fptr:  uintptr(ptr),
+		Flen1: uint64(length),
+	})
 }

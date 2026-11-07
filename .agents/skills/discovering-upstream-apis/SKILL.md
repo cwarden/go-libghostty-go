@@ -14,8 +14,7 @@ and creates or updates Go bindings for them.
 
 ## Checking for upstream changes
 
-The pinned commit is in `CMakeLists.txt` under
-`FetchContent_Declare(ghostty ...)`.
+The pinned commit is the `ghosttyCommit` constant in `generator.go`.
 
 Run `scripts/latest-upstream-commit.sh` to compare the pinned commit
 against the latest upstream `main` branch. It prints the pinned SHA,
@@ -23,8 +22,9 @@ the latest SHA, and whether an update is available.
 
 When an update is available:
 
-1. Update the `GIT_TAG` in `CMakeLists.txt` to the latest commit.
-2. Run `make clean && make build` to fetch the new source.
+1. Update `ghosttyCommit` in `generator.go` to the latest commit.
+2. Run `make generate-all` to fetch the new source and regenerate
+   `internal/vt`.
 3. Run the discovery steps above.
 4. Compare against the current Go bindings.
 5. Present findings to the user.
@@ -45,14 +45,14 @@ Determine the scope based on the user's request:
 Headers live at:
 
 ```
-build/_deps/ghostty-src/zig-out/include/ghostty/vt/
+/tmp/libghostty-generate/out-amd64/include/ghostty/vt/
 ```
 
 The umbrella header is at
-`build/_deps/ghostty-src/zig-out/include/ghostty/vt.h` and includes
+`/tmp/libghostty-generate/out-amd64/include/ghostty/vt.h` and includes
 all sub-headers. Individual headers are in the `vt/` subdirectory.
 
-If the build directory does not exist, run `make build` first.
+If that directory does not exist, run `make generate` first.
 
 ### 3. Discover unbound APIs
 
@@ -62,7 +62,7 @@ To find what's new or missing:
 
    ```
    grep -rh '^[A-Za-z].*ghostty_' \
-     build/_deps/ghostty-src/zig-out/include/ghostty/vt/ \
+     /tmp/libghostty-generate/out-amd64/include/ghostty/vt/ \
      | grep '('
    ```
 
@@ -80,7 +80,7 @@ For type/enum discovery:
 
 ```
 grep -rh 'typedef\|^} Ghostty\|GHOSTTY_[A-Z_]*[, ]' \
-  build/_deps/ghostty-src/zig-out/include/ghostty/vt/*.h
+  /tmp/libghostty-generate/out-amd64/include/ghostty/vt/*.h
 ```
 
 ### 4. Confirm with the user
@@ -102,8 +102,9 @@ existing code. Here are some examples:
   appropriate enum, cast result to Go type.
 - **New/Free lifecycle**: See `render_state.go` — `NewX()` returns
   `(*X, error)`, `Close()` frees.
-- **Effect callbacks**: See `terminal_effect.go` — use C trampolines
-  with `//export` and `cgo.Handle` for userdata round-tripping.
+- **Effect callbacks**: See `terminal_effect.go` — top-level Go
+  trampolines registered with `vt.Fp` and a `handle` (ccgo.go) as
+  userdata; the conventions are in `CCGO.md`.
 - **Tagged unions**: See `terminal.go` `ScrollViewport*` — set tag
   then poke the value union via `unsafe.Pointer`.
 - **Formatters/iterators**: See `formatter.go` — functional options

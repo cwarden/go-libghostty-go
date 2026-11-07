@@ -3,10 +3,11 @@ package libghostty
 // Render state for creating high-performance renderers.
 // Wraps the GhosttyRenderState C APIs (excluding row/cell iterators).
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // RenderState holds the state required to render a visible screen
 // (viewport) of a terminal instance. It is stateful and optimized
@@ -31,7 +32,7 @@ import "C"
 //
 // C: GhosttyRenderState
 type RenderState struct {
-	ptr C.GhosttyRenderState
+	ptr vt.GhosttyRenderState
 }
 
 // RenderStateOverscan specifies the number of extra rows above and below the
@@ -57,15 +58,15 @@ type RenderStateDirty int
 
 const (
 	// RenderStateDirtyFalse means not dirty; rendering can be skipped.
-	RenderStateDirtyFalse RenderStateDirty = C.GHOSTTY_RENDER_STATE_DIRTY_FALSE
+	RenderStateDirtyFalse RenderStateDirty = vt.GHOSTTY_RENDER_STATE_DIRTY_FALSE
 
 	// RenderStateDirtyPartial means some rows changed; renderer can
 	// redraw incrementally.
-	RenderStateDirtyPartial RenderStateDirty = C.GHOSTTY_RENDER_STATE_DIRTY_PARTIAL
+	RenderStateDirtyPartial RenderStateDirty = vt.GHOSTTY_RENDER_STATE_DIRTY_PARTIAL
 
 	// RenderStateDirtyFull means global state changed; renderer should
 	// redraw everything.
-	RenderStateDirtyFull RenderStateDirty = C.GHOSTTY_RENDER_STATE_DIRTY_FULL
+	RenderStateDirtyFull RenderStateDirty = vt.GHOSTTY_RENDER_STATE_DIRTY_FULL
 )
 
 // RenderStateCursor holds all cursor information from a render state,
@@ -123,24 +124,34 @@ type RenderStateColors struct {
 	Palette Palette
 }
 
+// handleSize is the size of a C handle (a pointer) in TLS stack memory,
+// used by the constructors that receive their handle through an
+// out-parameter.
+const handleSize = int(unsafe.Sizeof(uintptr(0)))
+
 // NewRenderState creates a new empty render state.
 func NewRenderState() (*RenderState, error) {
-	var ptr C.GhosttyRenderState
-	if err := resultError(C.ghostty_render_state_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(handleSize)
+	defer tls.Free(handleSize)
+	if err := resultError(vt.Xghostty_render_state_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &RenderState{ptr: ptr}, nil
+	return &RenderState{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close frees the underlying render state handle. After this call,
 // the render state must not be used, except that calling Close again is
 // a safe no-op.
 func (rs *RenderState) Close() {
-	if rs == nil || rs.ptr == nil {
+	if rs == nil || rs.ptr == 0 {
 		return
 	}
-	C.ghostty_render_state_free(rs.ptr)
-	rs.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_render_state_free(tls, rs.ptr)
+	rs.ptr = 0
 }
 
 // Update copies the terminal's current display state into rs. It consumes
@@ -151,20 +162,26 @@ func (rs *RenderState) Close() {
 // not read from rs concurrently with Update. A [RenderHoldFunc] may call Update
 // when a hold begins to capture the last complete frame.
 func (rs *RenderState) Update(t *Terminal) error {
-	return resultError(C.ghostty_render_state_update(rs.ptr, t.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_update(tls, rs.ptr, t.ptr))
 }
 
 // BeginUpdate performs the terminal-dependent phase of a two-phase render
 // state update. Every successful call must be paired with [RenderState.EndUpdate]
 // before reading the render state.
 func (rs *RenderState) BeginUpdate(t *Terminal) error {
-	return resultError(C.ghostty_render_state_begin_update(rs.ptr, t.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_begin_update(tls, rs.ptr, t.ptr))
 }
 
 // EndUpdate completes deferred work from [RenderState.BeginUpdate]. It only
 // accesses render-state-owned memory and does not require terminal access.
 func (rs *RenderState) EndUpdate() error {
-	return resultError(C.ghostty_render_state_end_update(rs.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_end_update(tls, rs.ptr))
 }
 
 // Clean marks all render-state dirty data as consumed. It clears both the
@@ -175,5 +192,7 @@ func (rs *RenderState) EndUpdate() error {
 // [RenderStateRowIterator.SetDirty].
 // C: ghostty_render_state_clean
 func (rs *RenderState) Clean() error {
-	return resultError(C.ghostty_render_state_clean(rs.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_clean(tls, rs.ptr))
 }

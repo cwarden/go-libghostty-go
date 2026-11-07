@@ -1,94 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-#include "go_io.h"
-#include <string.h>
-
-// Buffer small formatter writes before forwarding them to Go. Styled output
-// can contain hundreds of small writes, and crossing into Go for each one is
-// expensive. The buffer is flushed when full and when formatting completes;
-// large writes bypass it. libghostty formats synchronously and is fast, so
-// buffering is not expected to add noticeable latency.
-typedef struct {
-	GhosttyWriter downstream;
-	uint8_t* buffer;
-	size_t len;
-	size_t capacity;
-} ghostty_go_formatter_writer;
-
-static bool ghostty_go_formatter_writer_flush(
-	ghostty_go_formatter_writer* writer
-) {
-	if (writer->len == 0) return true;
-	if (!writer->downstream.write(
-		writer->downstream.userdata,
-		writer->buffer,
-		writer->len)) {
-		return false;
-	}
-	writer->len = 0;
-	return true;
-}
-
-static bool ghostty_go_formatter_writer_write(
-	void* userdata,
-	const uint8_t* data,
-	size_t len
-) {
-	ghostty_go_formatter_writer* writer = userdata;
-	while (len > 0) {
-		if (writer->len == 0 && len >= writer->capacity) {
-			return writer->downstream.write(
-				writer->downstream.userdata,
-				data,
-				len);
-		}
-
-		size_t available = writer->capacity - writer->len;
-		size_t count = len < available ? len : available;
-		memcpy(writer->buffer + writer->len, data, count);
-		writer->len += count;
-		data += count;
-		len -= count;
-
-		if (writer->len == writer->capacity &&
-			!ghostty_go_formatter_writer_flush(writer)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-static inline GhosttyResult ghostty_go_formatter_format(
-	GhosttyFormatter formatter,
-	uintptr_t userdata
-) {
-	uint8_t buffer[16 * 1024];
-	ghostty_go_formatter_writer context = {
-		.downstream = ghostty_go_writer(userdata),
-		.buffer = buffer,
-		.len = 0,
-		.capacity = sizeof(buffer),
-	};
-	GhosttyWriter writer = {
-		.write = ghostty_go_formatter_writer_write,
-		.userdata = &context,
-	};
-
-	GhosttyResult result = ghostty_formatter_format(formatter, writer);
-	if (result != GHOSTTY_SUCCESS) return result;
-	if (!ghostty_go_formatter_writer_flush(&context)) {
-		return GHOSTTY_IO_ERROR;
-	}
-	return GHOSTTY_SUCCESS;
-}
-*/
-import "C"
-
 import (
 	"io"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
 )
 
 // FormatterFormat selects the output format for a Formatter.
@@ -97,13 +13,13 @@ type FormatterFormat int
 
 const (
 	// FormatterFormatPlain emits plain text (no escape sequences).
-	FormatterFormatPlain FormatterFormat = C.GHOSTTY_FORMATTER_FORMAT_PLAIN
+	FormatterFormatPlain FormatterFormat = vt.GHOSTTY_FORMATTER_FORMAT_PLAIN
 
 	// FormatterFormatVT emits VT sequences preserving colors, styles, URLs, etc.
-	FormatterFormatVT FormatterFormat = C.GHOSTTY_FORMATTER_FORMAT_VT
+	FormatterFormatVT FormatterFormat = vt.GHOSTTY_FORMATTER_FORMAT_VT
 
 	// FormatterFormatHTML emits HTML with inline styles.
-	FormatterFormatHTML FormatterFormat = C.GHOSTTY_FORMATTER_FORMAT_HTML
+	FormatterFormatHTML FormatterFormat = vt.GHOSTTY_FORMATTER_FORMAT_HTML
 )
 
 // FormatterExtras selects terminal state to add to VT output. Combine values
@@ -122,63 +38,67 @@ const (
 // A new formatter uses [FormatterExtrasDefault]. Use [FormatterExtrasAll] to
 // recreate the terminal as closely as possible.
 //
+// The values are those of the GHOSTTY_FORMATTER_EXTRA_* macros in
+// formatter.h. The translated headers in internal/vt do not carry them
+// because they are expressions rather than literals.
+//
 // C: GhosttyFormatterExtras
 type FormatterExtras uint32
 
 const (
 	// FormatterExtraPalette restores the color palette with OSC 4.
-	FormatterExtraPalette FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_PALETTE
+	FormatterExtraPalette FormatterExtras = 1 << 0
 
 	// FormatterExtraModes restores terminal modes that differ from their
 	// defaults with CSI h and l.
-	FormatterExtraModes FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_MODES
+	FormatterExtraModes FormatterExtras = 1 << 1
 
 	// FormatterExtraScrollingRegion restores the scrolling region with DECSTBM
 	// and DECSLRM.
-	FormatterExtraScrollingRegion FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_SCROLLING_REGION
+	FormatterExtraScrollingRegion FormatterExtras = 1 << 2
 
 	// FormatterExtraTabstops restores tab stops by clearing them all and
 	// setting each one again.
-	FormatterExtraTabstops FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_TABSTOPS
+	FormatterExtraTabstops FormatterExtras = 1 << 3
 
 	// FormatterExtraPwd restores the working directory with OSC 7.
-	FormatterExtraPwd FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_PWD
+	FormatterExtraPwd FormatterExtras = 1 << 4
 
 	// FormatterExtraKeyboard restores keyboard modes such as modifyOtherKeys.
-	FormatterExtraKeyboard FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_KEYBOARD
+	FormatterExtraKeyboard FormatterExtras = 1 << 5
 
 	// FormatterExtraCursor restores the cursor position with CUP.
-	FormatterExtraCursor FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_CURSOR
+	FormatterExtraCursor FormatterExtras = 1 << 6
 
 	// FormatterExtraStyle restores the style the cursor writes new text with,
 	// using SGR.
-	FormatterExtraStyle FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_STYLE
+	FormatterExtraStyle FormatterExtras = 1 << 7
 
 	// FormatterExtraHyperlink restores the hyperlink the cursor writes new text
 	// with, using OSC 8.
-	FormatterExtraHyperlink FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_HYPERLINK
+	FormatterExtraHyperlink FormatterExtras = 1 << 8
 
 	// FormatterExtraProtection restores character protection with DECSCA.
-	FormatterExtraProtection FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_PROTECTION
+	FormatterExtraProtection FormatterExtras = 1 << 9
 
 	// FormatterExtraKittyKeyboard restores the Kitty keyboard protocol flags.
-	FormatterExtraKittyKeyboard FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_KITTY_KEYBOARD
+	FormatterExtraKittyKeyboard FormatterExtras = 1 << 10
 
 	// FormatterExtraCharsets restores the character sets, such as the line
 	// drawing set.
-	FormatterExtraCharsets FormatterExtras = C.GHOSTTY_FORMATTER_EXTRA_CHARSETS
+	FormatterExtraCharsets FormatterExtras = 1 << 11
 
 	// FormatterExtrasNone selects no extras. VT output has only the text and
 	// its styles.
-	FormatterExtrasNone FormatterExtras = C.GHOSTTY_FORMATTER_EXTRAS_NONE
+	FormatterExtrasNone FormatterExtras = 0
 
 	// FormatterExtrasAll selects every extra.
-	FormatterExtrasAll FormatterExtras = C.GHOSTTY_FORMATTER_EXTRAS_ALL
+	FormatterExtrasAll FormatterExtras = 0xFFF
 
 	// FormatterExtrasDefault is what a new formatter starts with: the palette,
 	// the cursor style and the cursor hyperlink. These are the extras that
 	// affect how output looks.
-	FormatterExtrasDefault FormatterExtras = C.GHOSTTY_FORMATTER_EXTRAS_DEFAULT
+	FormatterExtrasDefault FormatterExtras = FormatterExtraPalette | FormatterExtraStyle | FormatterExtraHyperlink
 )
 
 // FormatterOption is a functional option for configuring a Formatter. Each one
@@ -239,9 +159,9 @@ func WithFormatterExtras(extras FormatterExtras) FormatterOption {
 // directly to any io.Writer.
 // C: GhosttyFormatter
 type Formatter struct {
-	ptr C.GhosttyFormatter
+	ptr uintptr
 
-	// writer is reused across WriteTo calls to avoid allocating cgo handles.
+	// writer is reused across WriteTo calls to avoid allocating handles.
 	writer ghosttyWriterBridge
 }
 
@@ -255,12 +175,17 @@ type Formatter struct {
 // trimmed. Settings can be changed at any time with the Formatter setters and
 // stay in effect across format calls.
 func NewFormatter(t *Terminal, opts ...FormatterOption) (*Formatter, error) {
-	var ptr C.GhosttyFormatter
-	if err := resultError(C.ghostty_formatter_terminal_new(nil, &ptr, t.ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	if err := resultError(vt.Xghostty_formatter_terminal_new(tls, 0, out, t.ptr)); err != nil {
 		return nil, err
 	}
 
-	f := &Formatter{ptr: ptr}
+	f := &Formatter{ptr: *(*uintptr)(unsafe.Pointer(out))}
 	for _, opt := range opts {
 		if err := opt(f); err != nil {
 			f.Close()
@@ -271,26 +196,51 @@ func NewFormatter(t *Terminal, opts ...FormatterOption) (*Formatter, error) {
 	return f, nil
 }
 
-// set writes one formatter option. A nil value restores the option's default.
-func (f *Formatter) set(option C.GhosttyFormatterOption, value unsafe.Pointer) error {
-	return resultError(C.ghostty_formatter_set(f.ptr, option, value))
+// set writes one formatter option from a value stored in C memory. A zero
+// value pointer restores the option's default.
+func (f *Formatter) set(option vt.GhosttyFormatterOption, value uintptr) error {
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_formatter_set(tls, f.ptr, option, value))
 }
 
-// get reads one formatter option.
-func (f *Formatter) get(option C.GhosttyFormatterOption, out unsafe.Pointer) error {
-	return resultError(C.ghostty_formatter_get(f.ptr, option, out))
+// setFormatterScalar writes one formatter option whose value has type T.
+func setFormatterScalar[T any](f *Formatter, option vt.GhosttyFormatterOption, v T) error {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	n := int(unsafe.Sizeof(v))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*T)(unsafe.Pointer(p)) = v
+	return resultError(vt.Xghostty_formatter_set(tls, f.ptr, option, p))
+}
+
+// getFormatterScalar reads one formatter option whose value has type T.
+func getFormatterScalar[T any](f *Formatter, option vt.GhosttyFormatterOption) (T, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var v T
+	n := int(unsafe.Sizeof(v))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	if err := resultError(vt.Xghostty_formatter_get(tls, f.ptr, option, p)); err != nil {
+		return v, err
+	}
+	return *(*T)(unsafe.Pointer(p)), nil
 }
 
 // SetEmit sets the output format. The change applies to the next format call.
 func (f *Formatter) SetEmit(format FormatterFormat) error {
-	v := C.GhosttyFormatterFormat(format)
-	return f.set(C.GHOSTTY_FORMATTER_OPT_EMIT, unsafe.Pointer(&v))
+	return setFormatterScalar(f, vt.GHOSTTY_FORMATTER_OPT_EMIT, vt.GhosttyFormatterFormat(format))
 }
 
 // Emit returns the output format.
 func (f *Formatter) Emit() (FormatterFormat, error) {
-	var v C.GhosttyFormatterFormat
-	if err := f.get(C.GHOSTTY_FORMATTER_OPT_EMIT, unsafe.Pointer(&v)); err != nil {
+	v, err := getFormatterScalar[vt.GhosttyFormatterFormat](f, vt.GHOSTTY_FORMATTER_OPT_EMIT)
+	if err != nil {
 		return 0, err
 	}
 	return FormatterFormat(v), nil
@@ -301,17 +251,16 @@ func (f *Formatter) Emit() (FormatterFormat, error) {
 // the output. When true, a line the terminal wrapped onto several rows comes
 // out as one line, the way the program originally wrote it.
 func (f *Formatter) SetUnwrap(unwrap bool) error {
-	v := C.bool(unwrap)
-	return f.set(C.GHOSTTY_FORMATTER_OPT_UNWRAP, unsafe.Pointer(&v))
+	return setFormatterScalar(f, vt.GHOSTTY_FORMATTER_OPT_UNWRAP, cBool(unwrap))
 }
 
 // Unwrap reports whether soft-wrapped lines are joined.
 func (f *Formatter) Unwrap() (bool, error) {
-	var v C.bool
-	if err := f.get(C.GHOSTTY_FORMATTER_OPT_UNWRAP, unsafe.Pointer(&v)); err != nil {
+	v, err := getFormatterScalar[uint8](f, vt.GHOSTTY_FORMATTER_OPT_UNWRAP)
+	if err != nil {
 		return false, err
 	}
-	return bool(v), nil
+	return v != 0, nil
 }
 
 // SetTrim controls whether trailing whitespace is removed from lines that
@@ -321,17 +270,16 @@ func (f *Formatter) Unwrap() (bool, error) {
 // is [FormatterFormatVT] output with trim set to false, which keeps those lines
 // so that the output reproduces the screen layout.
 func (f *Formatter) SetTrim(trim bool) error {
-	v := C.bool(trim)
-	return f.set(C.GHOSTTY_FORMATTER_OPT_TRIM, unsafe.Pointer(&v))
+	return setFormatterScalar(f, vt.GHOSTTY_FORMATTER_OPT_TRIM, cBool(trim))
 }
 
 // Trim reports whether trailing whitespace is removed.
 func (f *Formatter) Trim() (bool, error) {
-	var v C.bool
-	if err := f.get(C.GHOSTTY_FORMATTER_OPT_TRIM, unsafe.Pointer(&v)); err != nil {
+	v, err := getFormatterScalar[uint8](f, vt.GHOSTTY_FORMATTER_OPT_TRIM)
+	if err != nil {
 		return false, err
 	}
-	return bool(v), nil
+	return v != 0, nil
 }
 
 // SetSelection restricts formatter output to sel. Passing nil clears it and
@@ -350,18 +298,17 @@ func (f *Formatter) Trim() (bool, error) {
 // changes. After that, set the selection again before formatting, or clear it.
 func (f *Formatter) SetSelection(sel *Selection) error {
 	if sel == nil {
-		return f.set(C.GHOSTTY_FORMATTER_OPT_SELECTION, nil)
+		return f.set(vt.GHOSTTY_FORMATTER_OPT_SELECTION, 0)
 	}
-	cs := sel.toC()
-	return f.set(C.GHOSTTY_FORMATTER_OPT_SELECTION, unsafe.Pointer(&cs))
+	return setFormatterScalar(f, vt.GHOSTTY_FORMATTER_OPT_SELECTION, sel.toC())
 }
 
 // Selection returns the selection the formatter is restricted to, or nil when
 // it formats the entire active screen. The result is subject to the same
 // validity rules as the value passed to [Formatter.SetSelection].
 func (f *Formatter) Selection() (*Selection, error) {
-	var cs C.GhosttySelection
-	if err := f.get(C.GHOSTTY_FORMATTER_OPT_SELECTION, unsafe.Pointer(&cs)); err != nil {
+	cs, err := getFormatterScalar[vt.GhosttySelection](f, vt.GHOSTTY_FORMATTER_OPT_SELECTION)
+	if err != nil {
 		return noValueNilSelection(err)
 	}
 	sel := selectionFromC(cs)
@@ -371,14 +318,13 @@ func (f *Formatter) Selection() (*Selection, error) {
 // SetExtras sets the terminal state added to VT output. To change one extra and
 // keep the rest, read the current value with [Formatter.Extras] first.
 func (f *Formatter) SetExtras(extras FormatterExtras) error {
-	v := C.GhosttyFormatterExtras(extras)
-	return f.set(C.GHOSTTY_FORMATTER_OPT_EXTRAS, unsafe.Pointer(&v))
+	return setFormatterScalar(f, vt.GHOSTTY_FORMATTER_OPT_EXTRAS, vt.GhosttyFormatterExtras(extras))
 }
 
 // Extras returns the terminal state added to VT output.
 func (f *Formatter) Extras() (FormatterExtras, error) {
-	var v C.GhosttyFormatterExtras
-	if err := f.get(C.GHOSTTY_FORMATTER_OPT_EXTRAS, unsafe.Pointer(&v)); err != nil {
+	v, err := getFormatterScalar[vt.GhosttyFormatterExtras](f, vt.GHOSTTY_FORMATTER_OPT_EXTRAS)
+	if err != nil {
 		return 0, err
 	}
 	return FormatterExtras(v), nil
@@ -387,12 +333,14 @@ func (f *Formatter) Extras() (FormatterExtras, error) {
 // Close frees the formatter handle. After this call, the formatter
 // must not be used, except that calling Close again is a safe no-op.
 func (f *Formatter) Close() {
-	if f == nil || f.ptr == nil {
+	if f == nil || f.ptr == 0 {
 		return
 	}
+	tls := getTLS()
+	defer putTLS(tls)
 	f.writer.close()
-	C.ghostty_formatter_free(f.ptr)
-	f.ptr = nil
+	vt.Xghostty_formatter_free(tls, f.ptr)
+	f.ptr = 0
 }
 
 // Format runs the formatter and returns the output as a byte slice.
@@ -401,14 +349,23 @@ func (f *Formatter) Close() {
 // terminal. The returned buffer is allocated by libghostty and copied
 // into Go memory.
 func (f *Formatter) Format() ([]byte, error) {
-	var outPtr *C.uint8_t
-	var outLen C.size_t
-	if err := resultError(C.ghostty_formatter_format_alloc(f.ptr, nil, &outPtr, &outLen)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// Two out-parameters: the buffer pointer and its length.
+	const n = 2 * int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	outPtr := out
+	outLen := out + unsafe.Sizeof(uintptr(0))
+	if err := resultError(vt.Xghostty_formatter_format_alloc(tls, f.ptr, 0, outPtr, outLen)); err != nil {
 		return nil, err
 	}
-	defer C.ghostty_free(nil, outPtr, outLen)
+	ptr := *(*uintptr)(unsafe.Pointer(outPtr))
+	length := *(*uint64)(unsafe.Pointer(outLen))
+	defer vt.Xghostty_free(tls, 0, ptr, length)
 
-	return C.GoBytes(unsafe.Pointer(outPtr), C.int(outLen)), nil
+	return goBytes(ptr, int(length)), nil
 }
 
 // FormatBuf formats into buf and returns the number of bytes written. If buf
@@ -417,19 +374,28 @@ func (f *Formatter) Format() ([]byte, error) {
 // size. Output that is empty needs no space, so a query for it returns 0 and
 // no error.
 func (f *Formatter) FormatBuf(buf []byte) (int, error) {
-	var ptr *C.uint8_t
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var ptr uintptr
 	if len(buf) > 0 {
-		ptr = (*C.uint8_t)(unsafe.Pointer(&buf[0]))
+		addr, unpin := pinBytes(buf)
+		defer unpin()
+		ptr = addr
 	}
 
-	var written C.size_t
-	result := C.ghostty_formatter_format_buf(
+	const n = int(unsafe.Sizeof(uint64(0)))
+	written := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(written)) = 0
+	result := vt.Xghostty_formatter_format_buf(
+		tls,
 		f.ptr,
 		ptr,
-		C.size_t(len(buf)),
-		&written,
+		uint64(len(buf)),
+		written,
 	)
-	return int(written), resultError(result)
+	return int(*(*uint64)(unsafe.Pointer(written))), resultError(result)
 }
 
 // FormatString runs the formatter and returns the output as a string.
@@ -446,9 +412,7 @@ func (f *Formatter) FormatString() (string, error) {
 // writing it to w. It does not allocate a buffer for the complete result. The
 // returned count includes bytes accepted before an error.
 //
-// WriteTo buffers small formatter writes to reduce calls into Go. The buffer
-// is flushed when full and when formatting completes. Since libghostty formats
-// quickly, buffering is not expected to add noticeable latency. WriteTo may
+// libghostty calls w synchronously for each piece of output, so WriteTo may
 // block if w blocks. The writer must not call methods on f or its terminal.
 // C: ghostty_formatter_format
 func (f *Formatter) WriteTo(w io.Writer) (int64, error) {
@@ -457,7 +421,9 @@ func (f *Formatter) WriteTo(w io.Writer) (int64, error) {
 		return 0, err
 	}
 
-	result := C.ghostty_go_formatter_format(f.ptr, C.uintptr_t(bridge.handle))
+	tls := getTLS()
+	defer putTLS(tls)
+	result := vt.Xghostty_formatter_format(tls, f.ptr, bridge.cWriter())
 	written := bridge.written
 	callbackErr := bridge.err
 	bridge.writer = nil

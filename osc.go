@@ -2,12 +2,11 @@ package libghostty
 
 // OSC parser bindings from osc.h.
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // OSCCommandType identifies a parsed Operating System Command.
 // C: GhosttyOscCommandType
@@ -15,87 +14,87 @@ type OSCCommandType int
 
 const (
 	// OSCCommandInvalid identifies an invalid or unsupported command.
-	OSCCommandInvalid OSCCommandType = C.GHOSTTY_OSC_COMMAND_INVALID
+	OSCCommandInvalid OSCCommandType = vt.GHOSTTY_OSC_COMMAND_INVALID
 
 	// OSCCommandChangeWindowTitle changes the window title.
-	OSCCommandChangeWindowTitle OSCCommandType = C.GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE
+	OSCCommandChangeWindowTitle OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE
 
 	// OSCCommandChangeWindowIcon changes the window icon.
-	OSCCommandChangeWindowIcon OSCCommandType = C.GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON
+	OSCCommandChangeWindowIcon OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON
 
 	// OSCCommandSemanticPrompt carries semantic prompt metadata.
-	OSCCommandSemanticPrompt OSCCommandType = C.GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT
+	OSCCommandSemanticPrompt OSCCommandType = vt.GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT
 
 	// OSCCommandClipboardContents accesses clipboard contents.
-	OSCCommandClipboardContents OSCCommandType = C.GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS
+	OSCCommandClipboardContents OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS
 
 	// OSCCommandReportPwd reports the present working directory.
-	OSCCommandReportPwd OSCCommandType = C.GHOSTTY_OSC_COMMAND_REPORT_PWD
+	OSCCommandReportPwd OSCCommandType = vt.GHOSTTY_OSC_COMMAND_REPORT_PWD
 
 	// OSCCommandMouseShape changes the pointer shape.
-	OSCCommandMouseShape OSCCommandType = C.GHOSTTY_OSC_COMMAND_MOUSE_SHAPE
+	OSCCommandMouseShape OSCCommandType = vt.GHOSTTY_OSC_COMMAND_MOUSE_SHAPE
 
 	// OSCCommandColorOperation performs a color query or update.
-	OSCCommandColorOperation OSCCommandType = C.GHOSTTY_OSC_COMMAND_COLOR_OPERATION
+	OSCCommandColorOperation OSCCommandType = vt.GHOSTTY_OSC_COMMAND_COLOR_OPERATION
 
 	// OSCCommandKittyColorProtocol uses Kitty's color protocol.
-	OSCCommandKittyColorProtocol OSCCommandType = C.GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL
+	OSCCommandKittyColorProtocol OSCCommandType = vt.GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL
 
 	// OSCCommandShowDesktopNotification requests a desktop notification.
-	OSCCommandShowDesktopNotification OSCCommandType = C.GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION
+	OSCCommandShowDesktopNotification OSCCommandType = vt.GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION
 
 	// OSCCommandHyperlinkStart begins an OSC 8 hyperlink.
-	OSCCommandHyperlinkStart OSCCommandType = C.GHOSTTY_OSC_COMMAND_HYPERLINK_START
+	OSCCommandHyperlinkStart OSCCommandType = vt.GHOSTTY_OSC_COMMAND_HYPERLINK_START
 
 	// OSCCommandHyperlinkEnd ends an OSC 8 hyperlink.
-	OSCCommandHyperlinkEnd OSCCommandType = C.GHOSTTY_OSC_COMMAND_HYPERLINK_END
+	OSCCommandHyperlinkEnd OSCCommandType = vt.GHOSTTY_OSC_COMMAND_HYPERLINK_END
 
 	// OSCCommandConEmuSleep is a ConEmu sleep command.
-	OSCCommandConEmuSleep OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_SLEEP
+	OSCCommandConEmuSleep OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_SLEEP
 
 	// OSCCommandConEmuShowMessageBox is a ConEmu message-box command.
-	OSCCommandConEmuShowMessageBox OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX
+	OSCCommandConEmuShowMessageBox OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX
 
 	// OSCCommandConEmuChangeTabTitle is a ConEmu tab-title command.
-	OSCCommandConEmuChangeTabTitle OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE
+	OSCCommandConEmuChangeTabTitle OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE
 
 	// OSCCommandConEmuProgressReport is a ConEmu progress command.
-	OSCCommandConEmuProgressReport OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT
+	OSCCommandConEmuProgressReport OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT
 
 	// OSCCommandConEmuWaitInput is a ConEmu wait-input command.
-	OSCCommandConEmuWaitInput OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT
+	OSCCommandConEmuWaitInput OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT
 
 	// OSCCommandConEmuGuiMacro is a ConEmu GUI macro command.
-	OSCCommandConEmuGuiMacro OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO
+	OSCCommandConEmuGuiMacro OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO
 
 	// OSCCommandConEmuRunProcess is a ConEmu process command.
-	OSCCommandConEmuRunProcess OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_RUN_PROCESS
+	OSCCommandConEmuRunProcess OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_RUN_PROCESS
 
 	// OSCCommandConEmuOutputEnvironmentVariable is a ConEmu environment
 	// variable command.
-	OSCCommandConEmuOutputEnvironmentVariable OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_OUTPUT_ENVIRONMENT_VARIABLE
+	OSCCommandConEmuOutputEnvironmentVariable OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_OUTPUT_ENVIRONMENT_VARIABLE
 
 	// OSCCommandConEmuXtermEmulation is a ConEmu xterm-emulation command.
-	OSCCommandConEmuXtermEmulation OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION
+	OSCCommandConEmuXtermEmulation OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION
 
 	// OSCCommandConEmuComment is a ConEmu comment command.
-	OSCCommandConEmuComment OSCCommandType = C.GHOSTTY_OSC_COMMAND_CONEMU_COMMENT
+	OSCCommandConEmuComment OSCCommandType = vt.GHOSTTY_OSC_COMMAND_CONEMU_COMMENT
 
 	// OSCCommandKittyTextSizing uses Kitty's text-sizing protocol.
-	OSCCommandKittyTextSizing OSCCommandType = C.GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING
+	OSCCommandKittyTextSizing OSCCommandType = vt.GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING
 
 	// OSCCommandKittyClipboardProtocol uses Kitty's clipboard protocol.
-	OSCCommandKittyClipboardProtocol OSCCommandType = C.GHOSTTY_OSC_COMMAND_KITTY_CLIPBOARD_PROTOCOL
+	OSCCommandKittyClipboardProtocol OSCCommandType = vt.GHOSTTY_OSC_COMMAND_KITTY_CLIPBOARD_PROTOCOL
 
 	// OSCCommandKittyDNDProtocol uses Kitty's drag-and-drop protocol.
-	OSCCommandKittyDNDProtocol OSCCommandType = C.GHOSTTY_OSC_COMMAND_KITTY_DND_PROTOCOL
+	OSCCommandKittyDNDProtocol OSCCommandType = vt.GHOSTTY_OSC_COMMAND_KITTY_DND_PROTOCOL
 
 	// OSCCommandHierarchicalContext is an OSC 3008 hierarchical context
 	// command. Programs use it to tell the terminal when they enter or
 	// leave a context, such as a shell session or a command, and to
 	// attach details about that context. Contexts can nest inside each
 	// other. See https://uapi-group.org/specifications/specs/osc_context/.
-	OSCCommandHierarchicalContext OSCCommandType = C.GHOSTTY_OSC_COMMAND_HIERARCHICAL_CONTEXT
+	OSCCommandHierarchicalContext OSCCommandType = vt.GHOSTTY_OSC_COMMAND_HIERARCHICAL_CONTEXT
 
 	// OSCCommandContextSignal is the old name for
 	// OSCCommandHierarchicalContext.
@@ -104,17 +103,17 @@ const (
 	OSCCommandContextSignal = OSCCommandHierarchicalContext
 
 	// OSCCommandKittyDesktopNotification uses Kitty's desktop notification protocol.
-	OSCCommandKittyDesktopNotification OSCCommandType = C.GHOSTTY_OSC_COMMAND_KITTY_DESKTOP_NOTIFICATION
+	OSCCommandKittyDesktopNotification OSCCommandType = vt.GHOSTTY_OSC_COMMAND_KITTY_DESKTOP_NOTIFICATION
 
 	// OSCCommandUnknown identifies an OSC command whose number the parser
 	// does not recognize. Enable capture with [OSCParser.SetUnknownMaxBytes].
-	OSCCommandUnknown OSCCommandType = C.GHOSTTY_OSC_COMMAND_UNKNOWN
+	OSCCommandUnknown OSCCommandType = vt.GHOSTTY_OSC_COMMAND_UNKNOWN
 
 	// OSCCommandProgramStatus identifies an OSC 7501 program status report,
 	// or a program asking whether the terminal supports those reports. The
 	// parser doesn't decode the report itself. To read reports, create a
 	// [Terminal] with [WithProgramStatus].
-	OSCCommandProgramStatus OSCCommandType = C.GHOSTTY_OSC_COMMAND_PROGRAM_STATUS
+	OSCCommandProgramStatus OSCCommandType = vt.GHOSTTY_OSC_COMMAND_PROGRAM_STATUS
 )
 
 // OSCCommandData identifies typed data extractable from an OSC command.
@@ -123,26 +122,26 @@ type OSCCommandData int
 
 const (
 	// OSCDataInvalid is an invalid data query.
-	OSCDataInvalid OSCCommandData = C.GHOSTTY_OSC_DATA_INVALID
+	OSCDataInvalid OSCCommandData = vt.GHOSTTY_OSC_DATA_INVALID
 
 	// OSCDataChangeWindowTitleString extracts a window title as a GhosttyString.
 	// The bytes are not null-terminated and belong to the parser, so they remain
 	// valid only until the next operation on it. Use [OSCCommand.WindowTitle] for
 	// a copy.
-	OSCDataChangeWindowTitleString OSCCommandData = C.GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR
+	OSCDataChangeWindowTitleString OSCCommandData = vt.GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR
 
 	// OSCDataUnknownContent extracts an unknown command's body as a
 	// GhosttyString. The bytes belong to the parser and remain valid only
 	// until the next operation on it. Use [OSCCommand.UnknownContent] for a copy.
-	OSCDataUnknownContent OSCCommandData = C.GHOSTTY_OSC_DATA_UNKNOWN_CONTENT
+	OSCDataUnknownContent OSCCommandData = vt.GHOSTTY_OSC_DATA_UNKNOWN_CONTENT
 
 	// OSCDataUnknownTruncated extracts whether an unknown command's content
 	// was shortened by the capture limit or an allocation failure (bool).
-	OSCDataUnknownTruncated OSCCommandData = C.GHOSTTY_OSC_DATA_UNKNOWN_TRUNCATED
+	OSCDataUnknownTruncated OSCCommandData = vt.GHOSTTY_OSC_DATA_UNKNOWN_TRUNCATED
 
 	// OSCDataUnknownTerminator extracts how an unknown command ended
 	// (GhosttyOscTerminator).
-	OSCDataUnknownTerminator OSCCommandData = C.GHOSTTY_OSC_DATA_UNKNOWN_TERMINATOR
+	OSCDataUnknownTerminator OSCCommandData = vt.GHOSTTY_OSC_DATA_UNKNOWN_TERMINATOR
 )
 
 // OSCTerminator identifies how an OSC sequence ended. Replies should use the
@@ -156,54 +155,66 @@ type OSCTerminator int
 
 const (
 	// OSCTerminatorST is the string terminator: ESC (0x1b) followed by a backslash (0x5c).
-	OSCTerminatorST OSCTerminator = C.GHOSTTY_OSC_TERMINATOR_ST
+	OSCTerminatorST OSCTerminator = vt.GHOSTTY_OSC_TERMINATOR_ST
 
 	// OSCTerminatorBEL is the bell byte (0x07).
-	OSCTerminatorBEL OSCTerminator = C.GHOSTTY_OSC_TERMINATOR_BEL
+	OSCTerminatorBEL OSCTerminator = vt.GHOSTTY_OSC_TERMINATOR_BEL
 )
 
 // OSCParser incrementally parses the bytes inside an OSC sequence.
 // C: GhosttyOscParser
 type OSCParser struct {
-	ptr C.GhosttyOscParser
+	ptr vt.GhosttyOscParser
 }
 
 // OSCCommand is a borrowed command produced by [OSCParser.End]. It remains
 // valid until the next parser operation other than command introspection.
 // C: GhosttyOscCommand
 type OSCCommand struct {
-	ptr C.GhosttyOscCommand
+	ptr vt.GhosttyOscCommand
 }
 
 // NewOSCParser creates a reusable OSC parser.
 func NewOSCParser() (*OSCParser, error) {
-	var ptr C.GhosttyOscParser
-	if err := resultError(C.ghostty_osc_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	if err := resultError(vt.Xghostty_osc_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &OSCParser{ptr: ptr}, nil
+	return &OSCParser{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close frees the parser. Commands borrowed from it become invalid. Calling
 // Close again is a safe no-op.
 func (p *OSCParser) Close() {
-	if p == nil || p.ptr == nil {
+	if p == nil || p.ptr == 0 {
 		return
 	}
-	C.ghostty_osc_free(p.ptr)
-	p.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_osc_free(tls, p.ptr)
+	p.ptr = 0
 }
 
 // Reset clears the current sequence without changing parser options.
 // Call Reset before parsing another sequence. Commands returned by earlier
 // calls to [OSCParser.End] are no longer valid.
 func (p *OSCParser) Reset() {
-	C.ghostty_osc_reset(p.ptr)
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_osc_reset(tls, p.ptr)
 }
 
 // Next feeds one byte from the OSC sequence body into the parser.
 func (p *OSCParser) Next(b byte) {
-	C.ghostty_osc_next(p.ptr, C.uint8_t(b))
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_osc_next(tls, p.ptr, b)
 }
 
 // End finishes parsing the current sequence and returns its command.
@@ -221,14 +232,18 @@ func (p *OSCParser) Next(b byte) {
 // [OSCCommandInvalid]. The command is valid until the next call to a method
 // on p. Call [OSCParser.Reset] before parsing the next sequence.
 func (p *OSCParser) End(terminator byte) OSCCommand {
+	tls := getTLS()
+	defer putTLS(tls)
 	return OSCCommand{
-		ptr: C.ghostty_osc_end(p.ptr, C.uint8_t(terminator)),
+		ptr: vt.Xghostty_osc_end(tls, p.ptr, terminator),
 	}
 }
 
 // Type returns the parsed command type.
 func (c OSCCommand) Type() OSCCommandType {
-	return OSCCommandType(C.ghostty_osc_command_type(c.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return OSCCommandType(vt.Xghostty_osc_command_type(tls, c.ptr))
 }
 
 // Data extracts a low-level typed value into out. The pointed-to Go value
@@ -236,18 +251,57 @@ func (c OSCCommand) Type() OSCCommandType {
 // writes to out. An error with result [ResultNoValue] means the command has no
 // data of this kind, for example asking a window title command for unknown
 // content.
+//
+// out may point into Go memory: the value is written to a C buffer of size
+// bytes and then copied, so only the first size bytes of *out are changed.
+// The size is the size of the documented output type.
 func (c OSCCommand) Data(data OSCCommandData, out unsafe.Pointer) error {
-	return resultError(C.ghostty_osc_command_data(
+	return c.data(data, out, oscDataSize(data))
+}
+
+// oscDataSize returns the size in bytes of the output type documented for
+// data in osc.h.
+func oscDataSize(data OSCCommandData) int {
+	switch data {
+	case OSCDataChangeWindowTitleString, OSCDataUnknownContent:
+		return int(unsafe.Sizeof(vt.GhosttyString{}))
+	case OSCDataUnknownTruncated:
+		return 1
+	case OSCDataUnknownTerminator:
+		return int(unsafe.Sizeof(vt.GhosttyOscTerminator(0)))
+	default:
+		return 0
+	}
+}
+
+// data extracts the value for data into a C buffer of size bytes and copies
+// it to out on success.
+func (c OSCCommand) data(data OSCCommandData, out unsafe.Pointer, size int) error {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	var buf uintptr
+	if size > 0 {
+		buf = tls.Alloc(size)
+		defer tls.Free(size)
+		clear(unsafe.Slice((*byte)(unsafe.Pointer(buf)), size))
+	}
+	err := resultError(vt.Xghostty_osc_command_data(
+		tls,
 		c.ptr,
-		C.GhosttyOscCommandData(data),
-		out,
+		vt.GhosttyOscCommandData(data),
+		buf,
 	))
+	if err == nil && size > 0 && out != nil {
+		copy(unsafe.Slice((*byte)(out), size), unsafe.Slice((*byte)(unsafe.Pointer(buf)), size))
+	}
+	return err
 }
 
 // WindowTitle returns the title carried by a change-window-title command.
 // The string is copied into Go-owned memory.
 func (c OSCCommand) WindowTitle() (string, bool) {
-	var v C.GhosttyString
+	var v vt.GhosttyString
 	if c.Data(OSCDataChangeWindowTitleString, unsafe.Pointer(&v)) != nil {
 		return "", false
 	}
@@ -273,8 +327,14 @@ func (c OSCCommand) WindowTitle() (string, bool) {
 //
 // C: ghostty_osc_set, GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES
 func (p *OSCParser) SetUnknownMaxBytes(limit uint) error {
-	v := C.size_t(limit)
-	return resultError(C.ghostty_osc_set(p.ptr, C.GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES, unsafe.Pointer(&v)))
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uint64(0)))
+	v := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uint64)(unsafe.Pointer(v)) = uint64(limit)
+	return resultError(vt.Xghostty_osc_set(tls, p.ptr, vt.GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES, v))
 }
 
 // UnknownContent returns a copy of an unknown command's body, including its
@@ -285,7 +345,7 @@ func (p *OSCParser) SetUnknownMaxBytes(limit uint) error {
 // It returns nil, false if c is not [OSCCommandUnknown] or the content cannot
 // be represented as a Go byte slice.
 func (c OSCCommand) UnknownContent() (content []byte, ok bool) {
-	var v C.GhosttyString
+	var v vt.GhosttyString
 	if c.Data(OSCDataUnknownContent, unsafe.Pointer(&v)) != nil {
 		return nil, false
 	}
@@ -297,18 +357,18 @@ func (c OSCCommand) UnknownContent() (content []byte, ok bool) {
 // [OSCCommand.UnknownContent] returns only the beginning of the sequence.
 // The ok result is false if c is not [OSCCommandUnknown].
 func (c OSCCommand) UnknownTruncated() (truncated bool, ok bool) {
-	var v C.bool
+	var v uint8
 	if c.Data(OSCDataUnknownTruncated, unsafe.Pointer(&v)) != nil {
 		return false, false
 	}
-	return bool(v), true
+	return v != 0, true
 }
 
 // UnknownTerminator returns how an unknown command ended. Use the same
 // terminator when replying to the command. The ok result is false if c is not
 // [OSCCommandUnknown].
 func (c OSCCommand) UnknownTerminator() (terminator OSCTerminator, ok bool) {
-	var v C.GhosttyOscTerminator
+	var v vt.GhosttyOscTerminator
 	if c.Data(OSCDataUnknownTerminator, unsafe.Pointer(&v)) != nil {
 		return 0, false
 	}

@@ -39,8 +39,8 @@ For each file in scope:
 
 1. Read the Go file to understand the binding patterns used.
 2. Read the corresponding C header in
-   `build/_deps/ghostty-src/zig-out/include/ghostty/vt/`.
-3. Note every CGo crossing — each `C.ghostty_*()` call.
+   `/tmp/libghostty-generate/out-amd64/include/ghostty/vt/`.
+3. Note every call into the library — each `vt.Xghostty_*()` call.
 
 ### 3. Apply the analysis checklist
 
@@ -48,9 +48,10 @@ For each API surface, check for these patterns:
 
 #### Multi-call data fetching (highest impact)
 
-Look for Go functions that make multiple `C.ghostty_*_get()` calls
-to fetch logically related fields from the same object. Each CGo
-call has ~100ns overhead that compounds in hot paths.
+Look for Go functions that make multiple `vt.Xghostty_*_get()` calls
+to fetch logically related fields from the same object. Each call
+takes a TLS from the pool and goes through the library's argument
+checks, which compounds in hot paths.
 
 **Signal**: A Go type whose methods each call the same C
 `_get(handle, ENUM_VARIANT, &out)` function with different enum
@@ -84,7 +85,7 @@ called together per iteration step.
 arguments in sequence during a loop body.
 
 **Suggestion**: A combined function returning a struct with all
-results, cutting N CGo crossings to 1.
+results, cutting N library calls to 1.
 
 #### Two-phase initialization
 
@@ -114,7 +115,7 @@ always the same value.
 Rate each suggestion:
 
 - **Hot path**: Called per-frame or per-placement in a render loop.
-  CGo overhead is multiplied by iteration count. High impact.
+  Per-call overhead is multiplied by iteration count. High impact.
 - **Setup path**: Called once during initialization or
   configuration. Low impact — ergonomics matter more than perf.
 - **Ergonomic**: Doesn't affect performance but makes the API

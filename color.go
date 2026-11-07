@@ -1,11 +1,11 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
+)
 
 // ColorRGB represents an RGB color value.
 // C: GhosttyColorRgb
@@ -62,81 +62,123 @@ type X11Color struct {
 // Named color palette indices.
 // C: GHOSTTY_COLOR_NAMED_*
 const (
-	ColorNamedBlack         = C.GHOSTTY_COLOR_NAMED_BLACK
-	ColorNamedRed           = C.GHOSTTY_COLOR_NAMED_RED
-	ColorNamedGreen         = C.GHOSTTY_COLOR_NAMED_GREEN
-	ColorNamedYellow        = C.GHOSTTY_COLOR_NAMED_YELLOW
-	ColorNamedBlue          = C.GHOSTTY_COLOR_NAMED_BLUE
-	ColorNamedMagenta       = C.GHOSTTY_COLOR_NAMED_MAGENTA
-	ColorNamedCyan          = C.GHOSTTY_COLOR_NAMED_CYAN
-	ColorNamedWhite         = C.GHOSTTY_COLOR_NAMED_WHITE
-	ColorNamedBrightBlack   = C.GHOSTTY_COLOR_NAMED_BRIGHT_BLACK
-	ColorNamedBrightRed     = C.GHOSTTY_COLOR_NAMED_BRIGHT_RED
-	ColorNamedBrightGreen   = C.GHOSTTY_COLOR_NAMED_BRIGHT_GREEN
-	ColorNamedBrightYellow  = C.GHOSTTY_COLOR_NAMED_BRIGHT_YELLOW
-	ColorNamedBrightBlue    = C.GHOSTTY_COLOR_NAMED_BRIGHT_BLUE
-	ColorNamedBrightMagenta = C.GHOSTTY_COLOR_NAMED_BRIGHT_MAGENTA
-	ColorNamedBrightCyan    = C.GHOSTTY_COLOR_NAMED_BRIGHT_CYAN
-	ColorNamedBrightWhite   = C.GHOSTTY_COLOR_NAMED_BRIGHT_WHITE
+	ColorNamedBlack         = vt.GHOSTTY_COLOR_NAMED_BLACK
+	ColorNamedRed           = vt.GHOSTTY_COLOR_NAMED_RED
+	ColorNamedGreen         = vt.GHOSTTY_COLOR_NAMED_GREEN
+	ColorNamedYellow        = vt.GHOSTTY_COLOR_NAMED_YELLOW
+	ColorNamedBlue          = vt.GHOSTTY_COLOR_NAMED_BLUE
+	ColorNamedMagenta       = vt.GHOSTTY_COLOR_NAMED_MAGENTA
+	ColorNamedCyan          = vt.GHOSTTY_COLOR_NAMED_CYAN
+	ColorNamedWhite         = vt.GHOSTTY_COLOR_NAMED_WHITE
+	ColorNamedBrightBlack   = vt.GHOSTTY_COLOR_NAMED_BRIGHT_BLACK
+	ColorNamedBrightRed     = vt.GHOSTTY_COLOR_NAMED_BRIGHT_RED
+	ColorNamedBrightGreen   = vt.GHOSTTY_COLOR_NAMED_BRIGHT_GREEN
+	ColorNamedBrightYellow  = vt.GHOSTTY_COLOR_NAMED_BRIGHT_YELLOW
+	ColorNamedBrightBlue    = vt.GHOSTTY_COLOR_NAMED_BRIGHT_BLUE
+	ColorNamedBrightMagenta = vt.GHOSTTY_COLOR_NAMED_BRIGHT_MAGENTA
+	ColorNamedBrightCyan    = vt.GHOSTTY_COLOR_NAMED_BRIGHT_CYAN
+	ColorNamedBrightWhite   = vt.GHOSTTY_COLOR_NAMED_BRIGHT_WHITE
+)
+
+// Sizes of the C structures this file places in TLS stack memory.
+const (
+	colorRGBSize     = int(unsafe.Sizeof(vt.GhosttyColorRgb{}))
+	colorPaletteSize = PaletteSize * colorRGBSize
+	colorMaskSize    = int(unsafe.Sizeof(vt.GhosttyColorPaletteMask{}))
 )
 
 // Components returns the red, green, and blue components through
 // ghostty_color_rgb_get. The fields on ColorRGB expose the same values
 // directly; this method is useful for consumers mirroring the C API.
 func (c ColorRGB) Components() (r, g, b uint8) {
-	cc := c.toC()
-	var cr, cg, cb C.uint8_t
-	C.ghostty_color_rgb_get(&cc, &cr, &cg, &cb)
-	return uint8(cr), uint8(cg), uint8(cb)
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// One block holds the input color and the three output bytes.
+	const n = colorRGBSize + 3
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(p)) = c.toC()
+	out := p + uintptr(colorRGBSize)
+	vt.Xghostty_color_rgb_get(tls, p, out, out+1, out+2)
+	bytes := unsafe.Slice((*byte)(unsafe.Pointer(out)), 3)
+	return bytes[0], bytes[1], bytes[2]
 }
 
 // ParseColor parses a color using Ghostty's config and theme syntax.
 func ParseColor(value string) (ColorRGB, error) {
-	var out C.GhosttyColorRgb
-	if err := resultError(C.ghostty_color_parse(
-		(*C.char)(unsafe.Pointer(unsafe.StringData(value))),
-		C.size_t(len(value)),
-		&out,
+	tls := getTLS()
+	defer putTLS(tls)
+
+	data, free := cBytes(tls, []byte(value))
+	defer free()
+	out := tls.Alloc(colorRGBSize)
+	defer tls.Free(colorRGBSize)
+	if err := resultError(vt.Xghostty_color_parse(
+		tls,
+		data,
+		uint64(len(value)),
+		out,
 	)); err != nil {
 		return ColorRGB{}, err
 	}
-	return colorRGBFromC(out), nil
+	return colorRGBFromC(*(*vt.GhosttyColorRgb)(unsafe.Pointer(out))), nil
 }
 
 // ParseX11Color parses an X11 color name using Ghostty's embedded rgb.txt
 // table. Matching is ASCII case-insensitive.
 func ParseX11Color(name string) (ColorRGB, error) {
-	var out C.GhosttyColorRgb
-	if err := resultError(C.ghostty_color_parse_x11(
-		(*C.char)(unsafe.Pointer(unsafe.StringData(name))),
-		C.size_t(len(name)),
-		&out,
+	tls := getTLS()
+	defer putTLS(tls)
+
+	data, free := cBytes(tls, []byte(name))
+	defer free()
+	out := tls.Alloc(colorRGBSize)
+	defer tls.Free(colorRGBSize)
+	if err := resultError(vt.Xghostty_color_parse_x11(
+		tls,
+		data,
+		uint64(len(name)),
+		out,
 	)); err != nil {
 		return ColorRGB{}, err
 	}
-	return colorRGBFromC(out), nil
+	return colorRGBFromC(*(*vt.GhosttyColorRgb)(unsafe.Pointer(out))), nil
 }
 
 // ParsePaletteEntry parses a Ghostty palette override in INDEX=COLOR form.
 func ParsePaletteEntry(value string) (uint8, ColorRGB, error) {
-	var index C.uint8_t
-	var color C.GhosttyColorRgb
-	if err := resultError(C.ghostty_color_parse_palette_entry(
-		(*C.char)(unsafe.Pointer(unsafe.StringData(value))),
-		C.size_t(len(value)),
-		&index,
-		&color,
+	tls := getTLS()
+	defer putTLS(tls)
+
+	data, free := cBytes(tls, []byte(value))
+	defer free()
+	// One block holds the output color followed by the output index.
+	const n = colorRGBSize + 1
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	index := p + uintptr(colorRGBSize)
+	if err := resultError(vt.Xghostty_color_parse_palette_entry(
+		tls,
+		data,
+		uint64(len(value)),
+		index,
+		p,
 	)); err != nil {
 		return 0, ColorRGB{}, err
 	}
-	return uint8(index), colorRGBFromC(color), nil
+	return *(*uint8)(unsafe.Pointer(index)), colorRGBFromC(*(*vt.GhosttyColorRgb)(unsafe.Pointer(p))), nil
 }
 
 // DefaultPalette returns Ghostty's built-in 256-color palette.
 func DefaultPalette() Palette {
-	var out [PaletteSize]C.GhosttyColorRgb
-	C.ghostty_color_palette_default(&out[0])
-	return paletteFromC(&out)
+	tls := getTLS()
+	defer putTLS(tls)
+
+	out := tls.Alloc(colorPaletteSize)
+	defer tls.Free(colorPaletteSize)
+	vt.Xghostty_color_palette_default(tls, out)
+	return paletteFromC(out)
 }
 
 // GeneratePalette derives the 216-color cube and grayscale ramp from a base
@@ -149,97 +191,147 @@ func GeneratePalette(
 	foreground ColorRGB,
 	harmonious bool,
 ) Palette {
-	var cbase [PaletteSize]C.GhosttyColorRgb
-	var basePtr *C.GhosttyColorRgb
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// One block holds the base palette, the skip mask, the background and
+	// foreground colors, and the output palette, in that order.
+	const n = colorPaletteSize + colorMaskSize + 2*colorRGBSize + colorPaletteSize
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	cbase := p
+	cskip := cbase + uintptr(colorPaletteSize)
+	bg := cskip + uintptr(colorMaskSize)
+	fg := bg + uintptr(colorRGBSize)
+	out := fg + uintptr(colorRGBSize)
+
+	var basePtr uintptr
 	if base != nil {
-		paletteToC(base, &cbase)
-		basePtr = &cbase[0]
+		paletteToC(base, cbase)
+		basePtr = cbase
 	}
 
-	var cskip C.GhosttyColorPaletteMask
-	var skipPtr *C.GhosttyColorPaletteMask
+	var skipPtr uintptr
 	if skip != nil {
+		mask := (*vt.GhosttyColorPaletteMask)(unsafe.Pointer(cskip))
 		for i, bits := range skip.Bits {
-			cskip.bits[i] = C.uint64_t(bits)
+			mask.Fbits.Farray[i] = bits
 		}
-		skipPtr = &cskip
+		skipPtr = cskip
 	}
 
-	bg := background.toC()
-	fg := foreground.toC()
-	var out [PaletteSize]C.GhosttyColorRgb
-	C.ghostty_color_palette_generate(
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(bg)) = background.toC()
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(fg)) = foreground.toC()
+	vt.Xghostty_color_palette_generate(
+		tls,
 		basePtr,
 		skipPtr,
-		&bg,
-		&fg,
-		C.bool(harmonious),
-		&out[0],
+		bg,
+		fg,
+		cBool(harmonious),
+		out,
 	)
-	return paletteFromC(&out)
+	return paletteFromC(out)
 }
 
 // Luminance returns the W3C relative luminance in the range 0 to 1.
 func (c ColorRGB) Luminance() float64 {
-	cc := c.toC()
-	return float64(C.ghostty_color_luminance(&cc))
+	tls := getTLS()
+	defer putTLS(tls)
+
+	p := tls.Alloc(colorRGBSize)
+	defer tls.Free(colorRGBSize)
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(p)) = c.toC()
+	return float64(vt.Xghostty_color_luminance(tls, p))
 }
 
 // PerceivedLuminance returns Ghostty's perceived luminance in the range 0
 // to 1. Ghostty treats backgrounds above 0.5 as light.
 func (c ColorRGB) PerceivedLuminance() float64 {
-	cc := c.toC()
-	return float64(C.ghostty_color_perceived_luminance(&cc))
+	tls := getTLS()
+	defer putTLS(tls)
+
+	p := tls.Alloc(colorRGBSize)
+	defer tls.Free(colorRGBSize)
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(p)) = c.toC()
+	return float64(vt.Xghostty_color_perceived_luminance(tls, p))
 }
 
 // Contrast returns the WCAG contrast ratio between c and other.
 func (c ColorRGB) Contrast(other ColorRGB) float64 {
-	a := c.toC()
-	b := other.toC()
-	return float64(C.ghostty_color_contrast(&a, &b))
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = 2 * colorRGBSize
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	a := p
+	b := p + uintptr(colorRGBSize)
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(a)) = c.toC()
+	*(*vt.GhosttyColorRgb)(unsafe.Pointer(b)) = other.toC()
+	return float64(vt.Xghostty_color_contrast(tls, a, b))
 }
 
 // X11Colors returns a Go-owned copy of Ghostty's X11 color name table in
 // rgb.txt order.
 func X11Colors() []X11Color {
-	count := int(C.ghostty_color_x11_name_count())
-	entries := unsafe.Slice(C.ghostty_color_x11_names(), count)
+	tls := getTLS()
+	defer putTLS(tls)
+
+	count := int(vt.Xghostty_color_x11_name_count(tls))
+	entries := unsafe.Slice((*vt.GhosttyColorX11Entry)(unsafe.Pointer(vt.Xghostty_color_x11_names(tls))), count)
 	result := make([]X11Color, count)
 	for i, entry := range entries {
 		result[i] = X11Color{
-			Name:  C.GoString(entry.name),
-			Color: colorRGBFromC(entry.color),
+			Name:  libc.GoString(entry.Fname),
+			Color: colorRGBFromC(entry.Fcolor),
 		}
 	}
 	return result
 }
 
 // toC converts a Go RGB value to GhosttyColorRgb.
-func (c ColorRGB) toC() C.GhosttyColorRgb {
-	return C.GhosttyColorRgb{
-		r: C.uint8_t(c.R),
-		g: C.uint8_t(c.G),
-		b: C.uint8_t(c.B),
+func (c ColorRGB) toC() vt.GhosttyColorRgb {
+	return vt.GhosttyColorRgb{
+		Fr: c.R,
+		Fg: c.G,
+		Fb: c.B,
 	}
 }
 
 // colorRGBFromC converts GhosttyColorRgb to its Go representation.
-func colorRGBFromC(c C.GhosttyColorRgb) ColorRGB {
-	return ColorRGB{R: uint8(c.r), G: uint8(c.g), B: uint8(c.b)}
+func colorRGBFromC(c vt.GhosttyColorRgb) ColorRGB {
+	return ColorRGB{R: c.Fr, G: c.Fg, B: c.Fb}
 }
 
-// paletteToC copies a Go palette into C-compatible storage.
-func paletteToC(src *Palette, dst *[PaletteSize]C.GhosttyColorRgb) {
+// paletteToC copies a Go palette into the C palette storage at dst, which
+// holds PaletteSize GhosttyColorRgb values.
+func paletteToC(src *Palette, dst uintptr) {
+	entries := unsafe.Slice((*vt.GhosttyColorRgb)(unsafe.Pointer(dst)), PaletteSize)
 	for i, color := range src {
-		dst[i] = color.toC()
+		entries[i] = color.toC()
 	}
 }
 
-// paletteFromC copies C-compatible palette storage into a Go palette.
-func paletteFromC(src *[PaletteSize]C.GhosttyColorRgb) Palette {
+// paletteFromC copies the C palette storage at src, which holds PaletteSize
+// GhosttyColorRgb values, into a Go palette.
+func paletteFromC(src uintptr) Palette {
 	var result Palette
-	for i, color := range src {
+	for i, color := range unsafe.Slice((*vt.GhosttyColorRgb)(unsafe.Pointer(src)), PaletteSize) {
 		result[i] = colorRGBFromC(color)
 	}
 	return result
+}
+
+// cBytes copies data into TLS stack memory for the duration of a call and
+// returns its address and the function that frees it. An empty slice gives
+// address 0 and frees nothing. Unlike pinBytes it also serves data that
+// was derived from a string.
+func cBytes(tls *libc.TLS, data []byte) (addr uintptr, free func()) {
+	if len(data) == 0 {
+		return 0, func() {}
+	}
+	p := tls.Alloc(len(data))
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(p)), len(data)), data)
+	return p, func() { tls.Free(len(data)) }
 }

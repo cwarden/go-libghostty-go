@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Prints the latest commit SHA on the main branch of the upstream
 # ghostty repo. Compares it against the pinned commit in
-# CMakeLists.txt and reports whether an update is needed.
+# generator.go and reports whether an update is needed.
 
 set -euo pipefail
 
 REPO="ghostty-org/ghostty"
 BRANCH="main"
-CMAKE="CMakeLists.txt"
+GENERATOR="generator.go"
 
-# Get the currently pinned commit from CMakeLists.txt.
-pinned=$(grep -oP '(?<=GIT_TAG )[0-9a-f]+' "$CMAKE" 2>/dev/null || true)
+# Get the currently pinned commit from generator.go.
+pinned=$(grep -oP '(?<=ghosttyCommit = ")[0-9a-f]+' "$GENERATOR" 2>/dev/null || true)
 if [ -z "$pinned" ]; then
-    echo "ERROR: could not find GIT_TAG in $CMAKE" >&2
+    echo "ERROR: could not find ghosttyCommit in $GENERATOR" >&2
     exit 1
 fi
 

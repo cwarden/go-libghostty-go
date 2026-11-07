@@ -86,9 +86,12 @@
 // [Terminal.SetColorBackground], [Terminal.SetColorPalette],
 // [Terminal.SetTitle], and [Terminal.SetPwd].
 //
-// # Linking
+// # Implementation
 //
-// This is a cgo package that links libghostty-vt via pkg-config. By
-// default it links statically. Build with "-tags dynamic" to link the
-// shared library instead, which then must be available at runtime.
+// This package is pure Go and needs no C toolchain or installed library.
+// libghostty-vt is compiled into the internal/vt package: Zig's C backend
+// emits the library as C, and ccgo (modernc.org/ccgo) translates that C
+// to Go on top of modernc.org/libc. Generated code is committed for Linux
+// on amd64 and arm64; see generator.go for how it is produced and the
+// README for how to regenerate it.
 package libghostty

@@ -3,167 +3,12 @@ package libghostty
 // Render-state row cell iterator wrapping the
 // GhosttyRenderStateRowCells C APIs.
 
-/*
-#include <ghostty/vt.h>
-
-// render_cell_style_snapshot is a small binding-side adapter over the current
-// libghostty render-cell APIs. The upstream API exposes each style/color field
-// separately, which is flexible but expensive for renderers because each Go
-// getter is a cgo transition and the allocation-returning Go getters materialize
-// *Style / *ColorRGB values. This helper keeps the same libghostty behavior but
-// batches the fields into one cgo call and a caller-owned result struct.
-typedef struct {
-	bool has_styling;
-	bool has_foreground;
-	GhosttyColorRgb foreground;
-	bool has_background;
-	GhosttyColorRgb background;
-	bool bold;
-	bool faint;
-	bool italic;
-	bool underline;
-	bool strikethrough;
-	bool inverse;
-} render_cell_style_snapshot;
-
-typedef struct {
-	GhosttyResult result;
-	render_cell_style_snapshot style;
-} render_cell_style_snapshot_result;
-
-static inline render_cell_style_snapshot_result render_cell_style_snapshot_get(
-	GhosttyRenderStateRowCells cells
-) {
-	render_cell_style_snapshot_result out = {
-		.result = GHOSTTY_SUCCESS,
-		.style = {0},
-	};
-
-	GhosttyResult result = ghostty_render_state_row_cells_get(
-		cells,
-		GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-		&out.style.has_styling
-	);
-	if (result != GHOSTTY_SUCCESS) {
-		out.result = result;
-		return out;
-	}
-
-	if (out.style.has_styling) {
-		GhosttyStyle style = {0};
-		result = ghostty_render_state_row_cells_get(
-			cells,
-			GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
-			&style
-		);
-		if (result != GHOSTTY_SUCCESS) {
-			out.result = result;
-			return out;
-		}
-
-		out.style.bold = (style.flags & GHOSTTY_STYLE_FLAG_BOLD) != 0;
-		out.style.faint = (style.flags & GHOSTTY_STYLE_FLAG_FAINT) != 0;
-		out.style.italic = (style.flags & GHOSTTY_STYLE_FLAG_ITALIC) != 0;
-		out.style.underline = GHOSTTY_STYLE_UNDERLINE(style) != GHOSTTY_SGR_UNDERLINE_NONE;
-		out.style.strikethrough = (style.flags & GHOSTTY_STYLE_FLAG_STRIKETHROUGH) != 0;
-		out.style.inverse = (style.flags & GHOSTTY_STYLE_FLAG_INVERSE) != 0;
-	}
-
-	result = ghostty_render_state_row_cells_get(
-		cells,
-		GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR,
-		&out.style.foreground
-	);
-	if (result == GHOSTTY_SUCCESS) {
-		out.style.has_foreground = true;
-	} else if (result != GHOSTTY_INVALID_VALUE) {
-		out.result = result;
-		return out;
-	}
-
-	result = ghostty_render_state_row_cells_get(
-		cells,
-		GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR,
-		&out.style.background
-	);
-	if (result == GHOSTTY_SUCCESS) {
-		out.style.has_background = true;
-	} else if (result != GHOSTTY_INVALID_VALUE) {
-		out.result = result;
-		return out;
-	}
-
-	return out;
-}
-
-// render_cell_graphemes_result is returned by value for the same reason as
-// render_cell_graphemes_utf8_result below. GhosttyCodepointBuffer holds a
-// pointer to the caller's buffer, and that buffer is Go memory. cgo refuses a
-// Go struct that holds a Go pointer, so the descriptor has to live here on the
-// C stack. It also reports the total count, so one call both sizes and fills
-// the common case of a cluster that fits.
-typedef struct {
-	GhosttyResult result;
-	size_t len;
-} render_cell_graphemes_result;
-
-static inline render_cell_graphemes_result render_cell_graphemes_append(
-	GhosttyRenderStateRowCells cells,
-	uint32_t* dst,
-	size_t dst_len
-) {
-	GhosttyCodepointBuffer buf = {
-		.ptr = dst,
-		.cap = dst_len,
-		.len = 0,
-	};
-	GhosttyResult result = ghostty_render_state_row_cells_get(
-		cells,
-		GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-		&buf
-	);
-	return (render_cell_graphemes_result) {
-		.result = result,
-		.len = buf.len,
-	};
-}
-
-// render_cell_graphemes_utf8_result is returned by value so the Go binding
-// doesn't need to pass a Go GhosttyBuffer out-parameter through cgo for the hot
-// per-cell text path. The upstream getter owns the grapheme extraction and UTF-8
-// encoding behavior; this helper only keeps the output struct on the C stack so
-// Go receives the result metadata by value.
-typedef struct {
-	GhosttyResult result;
-	size_t len;
-} render_cell_graphemes_utf8_result;
-
-static inline render_cell_graphemes_utf8_result render_cell_graphemes_utf8_append(
-	GhosttyRenderStateRowCells cells,
-	uint8_t* dst,
-	size_t dst_len
-) {
-	GhosttyBuffer buf = {
-		.ptr = dst,
-		.cap = dst_len,
-		.len = 0,
-	};
-	GhosttyResult result = ghostty_render_state_row_cells_get(
-		cells,
-		GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
-		&buf
-	);
-	return (render_cell_graphemes_utf8_result) {
-		.result = result,
-		.len = buf.len,
-	};
-}
-*/
-import "C"
-
 import (
 	"errors"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // RenderStateRowCellsData identifies a data field for render state cell
@@ -173,38 +18,38 @@ type RenderStateRowCellsData int
 
 const (
 	// RenderStateRowCellsDataInvalid is an invalid / sentinel value.
-	RenderStateRowCellsDataInvalid RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_INVALID
+	RenderStateRowCellsDataInvalid RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_INVALID
 
 	// RenderStateRowCellsDataRaw is the raw cell value (GhosttyCell).
-	RenderStateRowCellsDataRaw RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW
+	RenderStateRowCellsDataRaw RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW
 
 	// RenderStateRowCellsDataStyle is the style for the current cell
 	// (GhosttyStyle).
-	RenderStateRowCellsDataStyle RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE
+	RenderStateRowCellsDataStyle RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE
 
 	// RenderStateRowCellsDataGraphemesLen is the total number of grapheme
 	// codepoints including the base codepoint (uint32_t).
-	RenderStateRowCellsDataGraphemesLen RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN
+	RenderStateRowCellsDataGraphemesLen RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN
 
 	// RenderStateRowCellsDataBgColor is the resolved background color of
 	// the cell (GhosttyColorRgb).
-	RenderStateRowCellsDataBgColor RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR
+	RenderStateRowCellsDataBgColor RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR
 
 	// RenderStateRowCellsDataFgColor is the resolved foreground color of
 	// the cell (GhosttyColorRgb).
-	RenderStateRowCellsDataFgColor RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR
+	RenderStateRowCellsDataFgColor RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR
 
 	// RenderStateRowCellsDataSelected indicates whether the cell is contained
 	// within the current selection (bool).
-	RenderStateRowCellsDataSelected RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED
+	RenderStateRowCellsDataSelected RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED
 
 	// RenderStateRowCellsDataHasStyling indicates whether the cell has any
 	// explicit styling (bool).
-	RenderStateRowCellsDataHasStyling RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING
+	RenderStateRowCellsDataHasStyling RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING
 
 	// RenderStateRowCellsDataGraphemesUTF8 encodes the current cell's full
 	// grapheme cluster as UTF-8 into a caller-provided GhosttyBuffer.
-	RenderStateRowCellsDataGraphemesUTF8 RenderStateRowCellsData = C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8
+	RenderStateRowCellsDataGraphemesUTF8 RenderStateRowCellsData = vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8
 )
 
 // RenderCellStyle is a reusable, resolved style snapshot for the current
@@ -248,6 +93,27 @@ type RenderCellStyle struct {
 	Inverse bool
 }
 
+// The per-cell getters are called for every cell of every frame, so each
+// RenderStateRowCells owns one block of C memory for the values libghostty
+// writes, allocated once, instead of allocating per call. These are the
+// offsets of the values within the block, each aligned for its type.
+const (
+	// scratchBuffer holds a GhosttyBuffer or GhosttyCodepointBuffer.
+	scratchBuffer = 0
+	// scratchStyle holds a GhosttyStyle.
+	scratchStyle = 32
+	// scratchColor holds a GhosttyColorRgb.
+	scratchColor = 48
+	// scratchRaw holds a GhosttyCell.
+	scratchRaw = 56
+	// scratchWide holds a GhosttyCellWide.
+	scratchWide = 64
+	// scratchBool holds a bool.
+	scratchBool = 68
+	// cellsScratchSize is the size of the block.
+	cellsScratchSize = 72
+)
+
 // RenderStateRowCells iterates over cells in a render-state row.
 // Create one with NewRenderStateRowCells, populate it via
 // [RenderStateRowIterator.Cells], then advance with
@@ -262,48 +128,70 @@ type RenderCellStyle struct {
 //
 // C: GhosttyRenderStateRowCells
 type RenderStateRowCells struct {
-	ptr C.GhosttyRenderStateRowCells
+	ptr vt.GhosttyRenderStateRowCells
+
+	// scratch is C memory of cellsScratchSize bytes that the getters read
+	// values into. See the scratch* offsets.
+	scratch uintptr
 }
 
 // NewRenderStateRowCells creates a new row cells instance. The
 // instance is empty until populated via RenderStateRowIterator.Cells.
 func NewRenderStateRowCells() (*RenderStateRowCells, error) {
-	var ptr C.GhosttyRenderStateRowCells
-	if err := resultError(C.ghostty_render_state_row_cells_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(handleSize)
+	defer tls.Free(handleSize)
+	if err := resultError(vt.Xghostty_render_state_row_cells_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &RenderStateRowCells{ptr: ptr}, nil
+	rc := &RenderStateRowCells{ptr: *(*uintptr)(unsafe.Pointer(out))}
+	// The block holds a buffer pointer, so it starts out zeroed.
+	rc.scratch = uintptr(allocZeroed(cellsScratchSize))
+	if rc.scratch == 0 {
+		vt.Xghostty_render_state_row_cells_free(tls, rc.ptr)
+		return nil, &Error{Result: ResultOutOfMemory}
+	}
+	return rc, nil
 }
 
 // Close frees the underlying row cells handle. After this call,
 // the instance must not be used, except that calling Close again is a
 // safe no-op.
 func (rc *RenderStateRowCells) Close() {
-	if rc == nil || rc.ptr == nil {
+	if rc == nil || rc.ptr == 0 {
 		return
 	}
-	C.ghostty_render_state_row_cells_free(rc.ptr)
-	rc.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_render_state_row_cells_free(tls, rc.ptr)
+	rc.ptr = 0
+	Free(unsafe.Pointer(rc.scratch), cellsScratchSize)
+	rc.scratch = 0
 }
 
 // Next advances the iterator to the next cell. Returns true if the
 // iterator moved successfully and cell data is available. Returns
 // false when there are no more cells.
 func (rc *RenderStateRowCells) Next() bool {
-	return bool(C.ghostty_render_state_row_cells_next(rc.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return vt.Xghostty_render_state_row_cells_next(tls, rc.ptr) != 0
 }
 
 // Select positions the iterator at the given column index (0-based)
 // so that subsequent reads return data for that cell.
 func (rc *RenderStateRowCells) Select(x uint16) error {
-	return resultError(C.ghostty_render_state_row_cells_select(rc.ptr, C.uint16_t(x)))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_row_cells_select(tls, rc.ptr, x))
 }
 
 // GetMulti queries multiple render-state cell data fields in a single
-// cgo call. This is a low-level function. Prefer the typed getters
+// call. This is a low-level function. Prefer the typed getters
 // (Raw, Style, Graphemes, BgColor, FgColor) for normal use. GetMulti
 // is useful when you need many fields at once and want to avoid
-// per-field cgo overhead.
+// per-field call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -335,68 +223,104 @@ func (rc *RenderStateRowCells) GetMulti(keys []RenderStateRowCellsData, values [
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyRenderStateRowCellsData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyRenderStateRowCellsData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_render_state_row_cells_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_row_cells_get_multi(
+		tls,
 		rc.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
+}
+
+// get reads data into the scratch block at offset and returns the error.
+func (rc *RenderStateRowCells) get(tls *libc.TLS, data vt.GhosttyRenderStateRowCellsData, offset uintptr) error {
+	return resultError(vt.Xghostty_render_state_row_cells_get(tls, rc.ptr, data, rc.scratch+offset))
 }
 
 // Raw returns the raw Cell value for the current iterator position.
 // The returned Cell can be used with the same getter methods as cells
 // obtained from GridRef.
 func (rc *RenderStateRowCells) Raw() (*Cell, error) {
-	var v C.GhosttyCell
-	if err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, unsafe.Pointer(&v))); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	if err := rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, scratchRaw); err != nil {
 		return nil, err
 	}
-	return &Cell{c: v}, nil
+	return &Cell{c: *(*vt.GhosttyCell)(unsafe.Pointer(rc.scratch + scratchRaw))}, nil
 }
 
 // Style returns the style for the current cell.
 func (rc *RenderStateRowCells) Style() (*Style, error) {
-	var cs C.GhosttyStyle
-	if err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, unsafe.Pointer(&cs))); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	if err := rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, scratchStyle); err != nil {
 		return nil, err
 	}
-	return &Style{c: cs}, nil
+	return &Style{c: *(*vt.GhosttyStyle)(unsafe.Pointer(rc.scratch + scratchStyle))}, nil
 }
 
 // StyleInto fills dst with the reusable resolved style snapshot for the current
 // cell. This is the allocation-reusing form of querying Style, FgColor,
-// BgColor, and HasStyling separately: it performs one cgo transition, stores
-// colors as values, and sets HasForeground/HasBackground when the corresponding
-// color is present.
+// BgColor, and HasStyling separately: it reads the values into memory the
+// iterator already owns, stores colors as values, and sets
+// HasForeground/HasBackground when the corresponding color is present.
 func (rc *RenderStateRowCells) StyleInto(dst *RenderCellStyle) error {
 	if dst == nil {
 		return errors.New("libghostty: nil RenderCellStyle")
 	}
 
-	result := C.render_cell_style_snapshot_get(rc.ptr)
-	if err := resultError(result.result); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	var snap RenderCellStyle
+
+	if err := rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING, scratchBool); err != nil {
+		return err
+	}
+	snap.HasStyling = *(*uint8)(unsafe.Pointer(rc.scratch + scratchBool)) != 0
+
+	if snap.HasStyling {
+		*(*vt.GhosttyStyle)(unsafe.Pointer(rc.scratch + scratchStyle)) = vt.GhosttyStyle{}
+		if err := rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, scratchStyle); err != nil {
+			return err
+		}
+		style := Style{c: *(*vt.GhosttyStyle)(unsafe.Pointer(rc.scratch + scratchStyle))}
+		snap.Bold = style.Bold()
+		snap.Faint = style.Faint()
+		snap.Italic = style.Italic()
+		// GHOSTTY_SGR_UNDERLINE_NONE is zero.
+		snap.Underline = style.Underline() != vt.GHOSTTY_SGR_UNDERLINE_NONE
+		snap.Strikethrough = style.Strikethrough()
+		snap.Inverse = style.Inverse()
+	}
+
+	color := (*vt.GhosttyColorRgb)(unsafe.Pointer(rc.scratch + scratchColor))
+	err := rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, scratchColor)
+	switch {
+	case err == nil:
+		snap.HasForeground = true
+		snap.Foreground = colorRGBFromC(*color)
+	case !errors.Is(err, ErrInvalidValue):
 		return err
 	}
 
-	snap := result.style
-	dst.HasStyling = bool(snap.has_styling)
-	dst.HasForeground = bool(snap.has_foreground)
-	dst.HasBackground = bool(snap.has_background)
-	dst.Foreground = ColorRGB{R: uint8(snap.foreground.r), G: uint8(snap.foreground.g), B: uint8(snap.foreground.b)}
-	dst.Background = ColorRGB{R: uint8(snap.background.r), G: uint8(snap.background.g), B: uint8(snap.background.b)}
-	dst.Bold = bool(snap.bold)
-	dst.Faint = bool(snap.faint)
-	dst.Italic = bool(snap.italic)
-	dst.Underline = bool(snap.underline)
-	dst.Strikethrough = bool(snap.strikethrough)
-	dst.Inverse = bool(snap.inverse)
+	err = rc.get(tls, vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, scratchColor)
+	switch {
+	case err == nil:
+		snap.HasBackground = true
+		snap.Background = colorRGBFromC(*color)
+	case !errors.Is(err, ErrInvalidValue):
+		return err
+	}
 
+	*dst = snap
 	return nil
 }
 
@@ -422,32 +346,51 @@ func (rc *RenderStateRowCells) Graphemes() ([]uint32, error) {
 // This is the allocation-reusing form of [RenderStateRowCells.Graphemes].
 // Callers that want a per-cell scratch buffer should pass scratch[:0].
 func (rc *RenderStateRowCells) GraphemesInto(dst []uint32) ([]uint32, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+
 	// Write into whatever spare capacity dst already has. A cell usually holds
-	// one codepoint, so a reused buffer finishes here in a single cgo call. The
+	// one codepoint, so a reused buffer finishes here in a single call. The
 	// result reports the total count either way, which sizes the retry below.
 	oldLen := len(dst)
-	available := cap(dst) - oldLen
-	var ptr *C.uint32_t
-	if available > 0 {
-		ptr = (*C.uint32_t)(unsafe.Pointer(&dst[:cap(dst)][oldLen]))
+	result, n := rc.graphemesAppend(tls, dst[oldLen:cap(dst)])
+	if result == vt.GHOSTTY_SUCCESS {
+		return dst[:oldLen+n], nil
 	}
-	result := C.render_cell_graphemes_append(rc.ptr, ptr, C.size_t(available))
-	if result.result == C.GHOSTTY_SUCCESS {
-		return dst[:oldLen+int(result.len)], nil
-	}
-	if result.result != C.GHOSTTY_OUT_OF_SPACE {
-		return dst, resultError(result.result)
+	if result != vt.GHOSTTY_OUT_OF_SPACE {
+		return dst, resultError(result)
 	}
 
 	// The cluster didn't fit, so grow to the size just reported and read again.
-	grown := make([]uint32, oldLen, oldLen+int(result.len))
+	grown := make([]uint32, oldLen, oldLen+n)
 	copy(grown, dst)
-	ptr = (*C.uint32_t)(unsafe.Pointer(&grown[:cap(grown)][oldLen]))
-	result = C.render_cell_graphemes_append(rc.ptr, ptr, C.size_t(cap(grown)-oldLen))
-	if err := resultError(result.result); err != nil {
+	result, n = rc.graphemesAppend(tls, grown[oldLen:cap(grown)])
+	if err := resultError(result); err != nil {
 		return dst, err
 	}
-	return grown[:oldLen+int(result.len)], nil
+	return grown[:oldLen+n], nil
+}
+
+// graphemesAppend asks libghostty for the current cell's codepoints into
+// dst, the spare capacity of the caller's buffer, and returns the result
+// and the count libghostty reports: the number written, or the number
+// needed with GHOSTTY_OUT_OF_SPACE.
+func (rc *RenderStateRowCells) graphemesAppend(tls *libc.TLS, dst []uint32) (vt.GhosttyResult, int) {
+	buf := (*vt.GhosttyCodepointBuffer)(unsafe.Pointer(rc.scratch + scratchBuffer))
+	*buf = vt.GhosttyCodepointBuffer{}
+	if len(dst) > 0 {
+		var pin unpinFunc
+		buf.Fptr, pin = pinUint32s(dst)
+		defer pin()
+		buf.Fcap1 = uint64(len(dst))
+	}
+	result := vt.Xghostty_render_state_row_cells_get(
+		tls,
+		rc.ptr,
+		vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
+		uintptr(unsafe.Pointer(buf)),
+	)
+	return result, int(buf.Flen1)
 }
 
 // AppendGraphemes appends the current cell's grapheme cluster encoded as
@@ -457,26 +400,22 @@ func (rc *RenderStateRowCells) GraphemesInto(dst []uint32) ([]uint32, error) {
 // This is intended for renderers and text extractors that ultimately need
 // bytes or strings and want to avoid allocating a temporary codepoint slice
 // and per-cell string. The upstream UTF-8 getter keeps grapheme scratch storage
-// on the C side, avoiding cgo-induced escapes of Go scratch values in hot
-// render loops.
+// on the libghostty side, so Go allocates nothing per cell in hot render
+// loops.
 func (rc *RenderStateRowCells) AppendGraphemes(dst []byte) ([]byte, error) {
+	tls := getTLS()
+	defer putTLS(tls)
 	oldLen := len(dst)
 	for {
 		available := cap(dst) - oldLen
-		var ptr *C.uint8_t
-		if available > 0 {
-			buf := dst[:cap(dst)]
-			ptr = (*C.uint8_t)(unsafe.Pointer(&buf[oldLen]))
-		}
-
-		result := C.render_cell_graphemes_utf8_append(rc.ptr, ptr, C.size_t(available))
-		switch result.result {
-		case C.GHOSTTY_SUCCESS:
-			return dst[:oldLen+int(result.len)], nil
-		case C.GHOSTTY_OUT_OF_SPACE:
-			needed := int(result.len)
+		result, n := rc.graphemesUTF8Append(tls, dst[oldLen:cap(dst)])
+		switch result {
+		case vt.GHOSTTY_SUCCESS:
+			return dst[:oldLen+n], nil
+		case vt.GHOSTTY_OUT_OF_SPACE:
+			needed := n
 			if needed <= available {
-				return dst, resultError(result.result)
+				return dst, resultError(result)
 			}
 			required := oldLen + needed
 			newCap := cap(dst) * 2
@@ -490,26 +429,38 @@ func (rc *RenderStateRowCells) AppendGraphemes(dst []byte) ([]byte, error) {
 			copy(grown, dst[:oldLen])
 			dst = grown
 		default:
-			return dst, resultError(result.result)
+			return dst, resultError(result)
 		}
 	}
+}
+
+// graphemesUTF8Append asks libghostty for the current cell's text into
+// dst, the spare capacity of the caller's buffer, and returns the result
+// and the count libghostty reports: the number of bytes written, or the
+// number needed with GHOSTTY_OUT_OF_SPACE.
+func (rc *RenderStateRowCells) graphemesUTF8Append(tls *libc.TLS, dst []byte) (vt.GhosttyResult, int) {
+	buf := (*vt.GhosttyBuffer)(unsafe.Pointer(rc.scratch + scratchBuffer))
+	*buf = vt.GhosttyBuffer{}
+	if len(dst) > 0 {
+		var unpin func()
+		buf.Fptr, unpin = pinBytes(dst)
+		defer unpin()
+		buf.Fcap1 = uint64(len(dst))
+	}
+	result := vt.Xghostty_render_state_row_cells_get(
+		tls,
+		rc.ptr,
+		vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
+		uintptr(unsafe.Pointer(buf)),
+	)
+	return result, int(buf.Flen1)
 }
 
 // BgColor returns the resolved background color for the current cell.
 // Returns nil (without error) when the cell has no background color,
 // in which case the caller should use the terminal default background.
 func (rc *RenderStateRowCells) BgColor() (*ColorRGB, error) {
-	var v C.GhosttyColorRgb
-	err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, unsafe.Pointer(&v)))
-	if err != nil {
-		var ge *Error
-		if errors.As(err, &ge) && ge.Result == ResultInvalidValue {
-			return nil, nil
-		}
-		return nil, err
-	}
-	c := ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}
-	return &c, nil
+	return rc.color(vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR)
 }
 
 // FgColor returns the resolved foreground color for the current cell.
@@ -517,8 +468,15 @@ func (rc *RenderStateRowCells) BgColor() (*ColorRGB, error) {
 // color, in which case the caller should use the terminal default
 // foreground. Bold color handling is not applied.
 func (rc *RenderStateRowCells) FgColor() (*ColorRGB, error) {
-	var v C.GhosttyColorRgb
-	err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, unsafe.Pointer(&v)))
+	return rc.color(vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR)
+}
+
+// color reads one of the cell's resolved colors, or nil when the cell has
+// none.
+func (rc *RenderStateRowCells) color(data vt.GhosttyRenderStateRowCellsData) (*ColorRGB, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	err := rc.get(tls, data, scratchColor)
 	if err != nil {
 		var ge *Error
 		if errors.As(err, &ge) && ge.Result == ResultInvalidValue {
@@ -526,7 +484,7 @@ func (rc *RenderStateRowCells) FgColor() (*ColorRGB, error) {
 		}
 		return nil, err
 	}
-	c := ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}
+	c := colorRGBFromC(*(*vt.GhosttyColorRgb)(unsafe.Pointer(rc.scratch + scratchColor)))
 	return &c, nil
 }
 
@@ -535,11 +493,7 @@ func (rc *RenderStateRowCells) FgColor() (*ColorRGB, error) {
 // was updated. Rendering policy for selected cells is left to the
 // caller.
 func (rc *RenderStateRowCells) Selected() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rc.getBool(vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED)
 }
 
 // HasStyling reports whether the current cell has any explicit styling.
@@ -547,9 +501,25 @@ func (rc *RenderStateRowCells) Selected() (bool, error) {
 // avoids materializing the raw cell when renderers only need to know
 // whether fetching the full style is necessary.
 func (rc *RenderStateRowCells) HasStyling() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_row_cells_get(rc.ptr, C.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING, unsafe.Pointer(&v))); err != nil {
+	return rc.getBool(vt.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING)
+}
+
+// getBool reads a bool value of the current cell.
+func (rc *RenderStateRowCells) getBool(data vt.GhosttyRenderStateRowCellsData) (bool, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	if err := rc.get(tls, data, scratchBool); err != nil {
 		return false, err
 	}
-	return bool(v), nil
+	return *(*uint8)(unsafe.Pointer(rc.scratch + scratchBool)) != 0, nil
+}
+
+// unpinFunc releases memory pinned by pinUint32s.
+type unpinFunc = func()
+
+// pinUint32s is pinBytes for a []uint32: it returns the address of the
+// first element, kept valid until the returned function is called. p must
+// not be empty.
+func pinUint32s(p []uint32) (addr uintptr, unpin unpinFunc) {
+	return pinBytes(unsafe.Slice((*byte)(unsafe.Pointer(&p[0])), len(p)*4))
 }

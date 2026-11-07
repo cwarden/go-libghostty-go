@@ -3,18 +3,16 @@ package libghostty
 // Memory allocation helpers wrapping the upstream ghostty_alloc() and
 // ghostty_free() functions from allocator.h.
 //
-// These replace direct C.malloc/C.free calls so that all memory is
-// allocated and freed through libghostty's allocator. This is critical
-// on platforms where the library's internal allocator differs from the
-// consumer's C runtime (e.g. Windows, where Zig's libc and MSVC's CRT
-// maintain separate heaps).
+// All memory handed to libghostty is allocated and freed through
+// libghostty's allocator, which in this translation is modernc.org/libc's
+// malloc: memory outside the Go heap that the garbage collector neither
+// moves nor scans.
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // Alloc allocates len bytes through the default libghostty allocator
 // (NULL allocator). Returns a pointer to the allocated memory or nil
@@ -35,7 +33,9 @@ import "unsafe"
 // look like an invalid Go pointer.
 // C: ghostty_alloc
 func Alloc(len uintptr) unsafe.Pointer {
-	return unsafe.Pointer(C.ghostty_alloc(nil, C.size_t(len)))
+	tls := getTLS()
+	defer putTLS(tls)
+	return unsafe.Pointer(vt.Xghostty_alloc(tls, 0, uint64(len)))
 }
 
 // allocZeroed allocates size bytes like Alloc and sets every byte to
@@ -44,7 +44,7 @@ func Alloc(len uintptr) unsafe.Pointer {
 //
 // Use allocZeroed instead of Alloc for any block that Go code will
 // store a pointer in. This includes C structs with pointer fields, such
-// as C.GhosttyString. Blocks that only ever hold bytes or other
+// as vt.GhosttyString. Blocks that only ever hold bytes or other
 // pointer-free values can use Alloc.
 //
 // The reason is the garbage collector. While a collection is running,
@@ -70,5 +70,7 @@ func allocZeroed(size uintptr) unsafe.Pointer {
 // nil.
 // C: ghostty_free
 func Free(ptr unsafe.Pointer, len uintptr) {
-	C.ghostty_free(nil, (*C.uint8_t)(ptr), C.size_t(len))
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_free(tls, 0, uintptr(ptr), uint64(len))
 }

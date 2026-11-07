@@ -3,19 +3,11 @@ package libghostty
 // Mouse encoder — encodes mouse events into terminal escape sequences.
 // Wraps the C APIs from mouse/encoder.h.
 
-/*
-#include <ghostty/vt.h>
+import (
+	"unsafe"
 
-// Helper to create a properly initialized GhosttyMouseEncoderSize (sized struct).
-static inline GhosttyMouseEncoderSize init_mouse_encoder_size() {
-	GhosttyMouseEncoderSize s = {0};
-	s.size = sizeof(GhosttyMouseEncoderSize);
-	return s;
-}
-*/
-import "C"
-
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // MouseEncoder encodes mouse events into terminal escape sequences,
 // supporting X10, UTF-8, SGR, URxvt, and SGR-Pixels mouse protocols.
@@ -30,7 +22,7 @@ import "unsafe"
 //
 // C: GhosttyMouseEncoder
 type MouseEncoder struct {
-	ptr C.GhosttyMouseEncoder
+	ptr uintptr
 }
 
 // MouseTrackingMode selects which mouse events the terminal tracks.
@@ -40,19 +32,19 @@ type MouseTrackingMode int
 
 const (
 	// MouseTrackingNone disables mouse reporting.
-	MouseTrackingNone MouseTrackingMode = C.GHOSTTY_MOUSE_TRACKING_NONE
+	MouseTrackingNone MouseTrackingMode = vt.GHOSTTY_MOUSE_TRACKING_NONE
 
 	// MouseTrackingX10 enables X10 mouse mode.
-	MouseTrackingX10 MouseTrackingMode = C.GHOSTTY_MOUSE_TRACKING_X10
+	MouseTrackingX10 MouseTrackingMode = vt.GHOSTTY_MOUSE_TRACKING_X10
 
 	// MouseTrackingNormal enables normal mouse mode (button press/release only).
-	MouseTrackingNormal MouseTrackingMode = C.GHOSTTY_MOUSE_TRACKING_NORMAL
+	MouseTrackingNormal MouseTrackingMode = vt.GHOSTTY_MOUSE_TRACKING_NORMAL
 
 	// MouseTrackingButton enables button-event tracking mode.
-	MouseTrackingButton MouseTrackingMode = C.GHOSTTY_MOUSE_TRACKING_BUTTON
+	MouseTrackingButton MouseTrackingMode = vt.GHOSTTY_MOUSE_TRACKING_BUTTON
 
 	// MouseTrackingAny enables any-event tracking mode.
-	MouseTrackingAny MouseTrackingMode = C.GHOSTTY_MOUSE_TRACKING_ANY
+	MouseTrackingAny MouseTrackingMode = vt.GHOSTTY_MOUSE_TRACKING_ANY
 )
 
 // MouseFormat selects the wire format for mouse escape sequences.
@@ -61,11 +53,11 @@ const (
 type MouseFormat int
 
 const (
-	MouseFormatX10       MouseFormat = C.GHOSTTY_MOUSE_FORMAT_X10
-	MouseFormatUTF8      MouseFormat = C.GHOSTTY_MOUSE_FORMAT_UTF8
-	MouseFormatSGR       MouseFormat = C.GHOSTTY_MOUSE_FORMAT_SGR
-	MouseFormatURxvt     MouseFormat = C.GHOSTTY_MOUSE_FORMAT_URXVT
-	MouseFormatSGRPixels MouseFormat = C.GHOSTTY_MOUSE_FORMAT_SGR_PIXELS
+	MouseFormatX10       MouseFormat = vt.GHOSTTY_MOUSE_FORMAT_X10
+	MouseFormatUTF8      MouseFormat = vt.GHOSTTY_MOUSE_FORMAT_UTF8
+	MouseFormatSGR       MouseFormat = vt.GHOSTTY_MOUSE_FORMAT_SGR
+	MouseFormatURxvt     MouseFormat = vt.GHOSTTY_MOUSE_FORMAT_URXVT
+	MouseFormatSGRPixels MouseFormat = vt.GHOSTTY_MOUSE_FORMAT_SGR_PIXELS
 )
 
 // MouseEncoderSize describes the rendered terminal geometry used to
@@ -107,84 +99,103 @@ type MouseEncoderOption int
 const (
 	// MouseEncoderOptEvent sets the mouse tracking mode
 	// (value: MouseTrackingMode).
-	MouseEncoderOptEvent MouseEncoderOption = C.GHOSTTY_MOUSE_ENCODER_OPT_EVENT
+	MouseEncoderOptEvent MouseEncoderOption = vt.GHOSTTY_MOUSE_ENCODER_OPT_EVENT
 
 	// MouseEncoderOptFormat sets the mouse output format
 	// (value: MouseFormat).
-	MouseEncoderOptFormat MouseEncoderOption = C.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT
+	MouseEncoderOptFormat MouseEncoderOption = vt.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT
 
 	// MouseEncoderOptSize sets the renderer size context
 	// (value: MouseEncoderSize).
-	MouseEncoderOptSize MouseEncoderOption = C.GHOSTTY_MOUSE_ENCODER_OPT_SIZE
+	MouseEncoderOptSize MouseEncoderOption = vt.GHOSTTY_MOUSE_ENCODER_OPT_SIZE
 
 	// MouseEncoderOptAnyButtonPressed sets whether any mouse button
 	// is currently pressed (value: bool).
-	MouseEncoderOptAnyButtonPressed MouseEncoderOption = C.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED
+	MouseEncoderOptAnyButtonPressed MouseEncoderOption = vt.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED
 
 	// MouseEncoderOptTrackLastCell enables motion deduplication by
 	// last cell (value: bool).
-	MouseEncoderOptTrackLastCell MouseEncoderOption = C.GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL
+	MouseEncoderOptTrackLastCell MouseEncoderOption = vt.GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL
 )
 
 // NewMouseEncoder creates a new mouse encoder with default options.
 // The encoder must be freed with Close when no longer needed.
 func NewMouseEncoder() (*MouseEncoder, error) {
-	var ptr C.GhosttyMouseEncoder
-	if err := resultError(C.ghostty_mouse_encoder_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	if err := resultError(vt.Xghostty_mouse_encoder_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &MouseEncoder{ptr: ptr}, nil
+	return &MouseEncoder{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close frees the underlying mouse encoder handle. After this call,
 // the encoder must not be used, except that calling Close again is a
 // safe no-op.
 func (enc *MouseEncoder) Close() {
-	if enc == nil || enc.ptr == nil {
+	if enc == nil || enc.ptr == 0 {
 		return
 	}
-	C.ghostty_mouse_encoder_free(enc.ptr)
-	enc.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_mouse_encoder_free(tls, enc.ptr)
+	enc.ptr = 0
+}
+
+// setMouseEncoderScalar writes one encoder option whose value has type T.
+func setMouseEncoderScalar[T any](enc *MouseEncoder, opt vt.GhosttyMouseEncoderOption, v T) error {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	n := int(unsafe.Sizeof(v))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*T)(unsafe.Pointer(p)) = v
+	return resultError(vt.Xghostty_mouse_encoder_set(tls, enc.ptr, opt, p))
 }
 
 // SetTrackingMode sets the mouse tracking mode on the encoder.
 func (enc *MouseEncoder) SetTrackingMode(mode MouseTrackingMode) error {
-	v := C.GhosttyMouseTrackingMode(mode)
-	return resultError(C.ghostty_mouse_encoder_set(enc.ptr, C.GHOSTTY_MOUSE_ENCODER_OPT_EVENT, unsafe.Pointer(&v)))
+	return setMouseEncoderScalar(enc, vt.GHOSTTY_MOUSE_ENCODER_OPT_EVENT, vt.GhosttyMouseTrackingMode(mode))
 }
 
 // SetFormat sets the mouse output format on the encoder.
 func (enc *MouseEncoder) SetFormat(format MouseFormat) error {
-	v := C.GhosttyMouseFormat(format)
-	return resultError(C.ghostty_mouse_encoder_set(enc.ptr, C.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, unsafe.Pointer(&v)))
+	return setMouseEncoderScalar(enc, vt.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, vt.GhosttyMouseFormat(format))
 }
 
 // SetSize sets the renderer size context on the encoder.
 func (enc *MouseEncoder) SetSize(s MouseEncoderSize) error {
-	cs := C.init_mouse_encoder_size()
-	cs.screen_width = C.uint32_t(s.ScreenWidth)
-	cs.screen_height = C.uint32_t(s.ScreenHeight)
-	cs.cell_width = C.uint32_t(s.CellWidth)
-	cs.cell_height = C.uint32_t(s.CellHeight)
-	cs.padding_top = C.uint32_t(s.PaddingTop)
-	cs.padding_bottom = C.uint32_t(s.PaddingBottom)
-	cs.padding_right = C.uint32_t(s.PaddingRight)
-	cs.padding_left = C.uint32_t(s.PaddingLeft)
-	return resultError(C.ghostty_mouse_encoder_set(enc.ptr, C.GHOSTTY_MOUSE_ENCODER_OPT_SIZE, unsafe.Pointer(&cs)))
+	// GhosttyMouseEncoderSize is a sized struct: size records the struct
+	// size this binding was built with.
+	cs := vt.GhosttyMouseEncoderSize{
+		Fsize:           uint64(unsafe.Sizeof(vt.GhosttyMouseEncoderSize{})),
+		Fscreen_width:   s.ScreenWidth,
+		Fscreen_height:  s.ScreenHeight,
+		Fcell_width:     s.CellWidth,
+		Fcell_height:    s.CellHeight,
+		Fpadding_top:    s.PaddingTop,
+		Fpadding_bottom: s.PaddingBottom,
+		Fpadding_right:  s.PaddingRight,
+		Fpadding_left:   s.PaddingLeft,
+	}
+	return setMouseEncoderScalar(enc, vt.GHOSTTY_MOUSE_ENCODER_OPT_SIZE, cs)
 }
 
 // SetAnyButtonPressed sets whether any mouse button is currently
 // pressed.
 func (enc *MouseEncoder) SetAnyButtonPressed(pressed bool) error {
-	v := C.bool(pressed)
-	return resultError(C.ghostty_mouse_encoder_set(enc.ptr, C.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, unsafe.Pointer(&v)))
+	return setMouseEncoderScalar(enc, vt.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, cBool(pressed))
 }
 
 // SetTrackLastCell enables or disables motion deduplication by
 // last cell.
 func (enc *MouseEncoder) SetTrackLastCell(track bool) error {
-	v := C.bool(track)
-	return resultError(C.ghostty_mouse_encoder_set(enc.ptr, C.GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL, unsafe.Pointer(&v)))
+	return setMouseEncoderScalar(enc, vt.GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL, cBool(track))
 }
 
 // SetFromTerminal reads the terminal's current mouse tracking mode
@@ -195,53 +206,70 @@ func (enc *MouseEncoder) SetTrackLastCell(track bool) error {
 // serialize access to both the encoder and the terminal during this
 // call.
 func (enc *MouseEncoder) SetFromTerminal(t *Terminal) error {
-	return resultError(C.ghostty_mouse_encoder_set_from_terminal(enc.ptr, t.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_mouse_encoder_set_from_terminal(tls, enc.ptr, t.ptr))
 }
 
 // Reset clears internal encoder state such as motion deduplication
 // (last tracked cell).
 func (enc *MouseEncoder) Reset() error {
-	return resultError(C.ghostty_mouse_encoder_reset(enc.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_mouse_encoder_reset(tls, enc.ptr))
 }
 
 // Encode encodes a mouse event into a terminal escape sequence and
 // returns the result as a byte slice. Not all mouse events produce
 // output; in that case, a nil slice and nil error are returned.
 func (enc *MouseEncoder) Encode(event *MouseEvent) ([]byte, error) {
-	// Most mouse escape sequences fit in 128 bytes. Try with a stack
-	// buffer first; fall back to a larger heap allocation if needed.
-	var buf [128]byte
-	var outLen C.size_t
-	result := C.ghostty_mouse_encoder_encode(
+	tls := getTLS()
+	defer putTLS(tls)
+
+	// Most mouse escape sequences fit in 128 bytes. Encode into a buffer
+	// on the C stack first; fall back to a larger allocation if needed.
+	const bufLen = 128
+	const n = bufLen + int(unsafe.Sizeof(uint64(0)))
+	buf := tls.Alloc(n)
+	defer tls.Free(n)
+	outLen := buf + bufLen
+	*(*uint64)(unsafe.Pointer(outLen)) = 0
+	result := vt.Xghostty_mouse_encoder_encode(
+		tls,
 		enc.ptr,
 		event.ptr,
-		(*C.uint8_t)(unsafe.Pointer(&buf[0])),
-		C.size_t(len(buf)),
-		&outLen,
+		buf,
+		bufLen,
+		outLen,
 	)
+	length := *(*uint64)(unsafe.Pointer(outLen))
 
-	if result == C.GHOSTTY_SUCCESS {
-		if outLen == 0 {
+	if result == vt.GHOSTTY_SUCCESS {
+		if length == 0 {
 			return nil, nil
 		}
-		out := make([]byte, outLen)
-		copy(out, buf[:outLen])
+		out := make([]byte, length)
+		copy(out, unsafe.Slice((*byte)(unsafe.Pointer(buf)), length))
 		return out, nil
 	}
 
-	if result == C.GHOSTTY_OUT_OF_SPACE {
-		// outLen contains the required buffer size.
-		dynBuf := make([]byte, outLen)
-		var written C.size_t
-		if err := resultError(C.ghostty_mouse_encoder_encode(
+	if result == vt.GHOSTTY_OUT_OF_SPACE {
+		// length is the required buffer size.
+		dynBuf := make([]byte, length)
+		addr, unpin := pinBytes(dynBuf)
+		defer unpin()
+		*(*uint64)(unsafe.Pointer(outLen)) = 0
+		if err := resultError(vt.Xghostty_mouse_encoder_encode(
+			tls,
 			enc.ptr,
 			event.ptr,
-			(*C.uint8_t)(unsafe.Pointer(&dynBuf[0])),
+			addr,
+			length,
 			outLen,
-			&written,
 		)); err != nil {
 			return nil, err
 		}
+		written := *(*uint64)(unsafe.Pointer(outLen))
 		if written == 0 {
 			return nil, nil
 		}

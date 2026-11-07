@@ -1,13 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
-
 import (
 	"errors"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
 )
 
 // CellData identifies a data field for cell queries.
@@ -16,46 +13,46 @@ type CellData int
 
 const (
 	// CellDataInvalid is an invalid data type.
-	CellDataInvalid CellData = C.GHOSTTY_CELL_DATA_INVALID
+	CellDataInvalid CellData = vt.GHOSTTY_CELL_DATA_INVALID
 
 	// CellDataCodepoint is the codepoint of the cell (uint32_t).
-	CellDataCodepoint CellData = C.GHOSTTY_CELL_DATA_CODEPOINT
+	CellDataCodepoint CellData = vt.GHOSTTY_CELL_DATA_CODEPOINT
 
 	// CellDataContentTag is the content tag describing what kind of
 	// content is in the cell (GhosttyCellContentTag).
-	CellDataContentTag CellData = C.GHOSTTY_CELL_DATA_CONTENT_TAG
+	CellDataContentTag CellData = vt.GHOSTTY_CELL_DATA_CONTENT_TAG
 
 	// CellDataWide is the wide property of the cell (GhosttyCellWide).
-	CellDataWide CellData = C.GHOSTTY_CELL_DATA_WIDE
+	CellDataWide CellData = vt.GHOSTTY_CELL_DATA_WIDE
 
 	// CellDataHasText indicates whether the cell has text to render (bool).
-	CellDataHasText CellData = C.GHOSTTY_CELL_DATA_HAS_TEXT
+	CellDataHasText CellData = vt.GHOSTTY_CELL_DATA_HAS_TEXT
 
 	// CellDataHasStyling indicates whether the cell has non-default
 	// styling (bool).
-	CellDataHasStyling CellData = C.GHOSTTY_CELL_DATA_HAS_STYLING
+	CellDataHasStyling CellData = vt.GHOSTTY_CELL_DATA_HAS_STYLING
 
 	// CellDataStyleID is the style ID for the cell (uint16_t).
-	CellDataStyleID CellData = C.GHOSTTY_CELL_DATA_STYLE_ID
+	CellDataStyleID CellData = vt.GHOSTTY_CELL_DATA_STYLE_ID
 
 	// CellDataHasHyperlink indicates whether the cell has a hyperlink
 	// (bool).
-	CellDataHasHyperlink CellData = C.GHOSTTY_CELL_DATA_HAS_HYPERLINK
+	CellDataHasHyperlink CellData = vt.GHOSTTY_CELL_DATA_HAS_HYPERLINK
 
 	// CellDataProtected indicates whether the cell is protected (bool).
-	CellDataProtected CellData = C.GHOSTTY_CELL_DATA_PROTECTED
+	CellDataProtected CellData = vt.GHOSTTY_CELL_DATA_PROTECTED
 
 	// CellDataSemanticContent is the semantic content type of the cell
 	// (GhosttyCellSemanticContent).
-	CellDataSemanticContent CellData = C.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT
+	CellDataSemanticContent CellData = vt.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT
 
 	// CellDataColorPalette is the palette index for the cell's background
 	// color (GhosttyColorPaletteIndex).
-	CellDataColorPalette CellData = C.GHOSTTY_CELL_DATA_COLOR_PALETTE
+	CellDataColorPalette CellData = vt.GHOSTTY_CELL_DATA_COLOR_PALETTE
 
 	// CellDataColorRGBValue is the RGB value for the cell's background
 	// color (GhosttyColorRgb).
-	CellDataColorRGBValue CellData = C.GHOSTTY_CELL_DATA_COLOR_RGB
+	CellDataColorRGBValue CellData = vt.GHOSTTY_CELL_DATA_COLOR_RGB
 )
 
 // RowData identifies a data field for row queries.
@@ -64,51 +61,52 @@ type RowData int
 
 const (
 	// RowDataInvalid is an invalid data type.
-	RowDataInvalid RowData = C.GHOSTTY_ROW_DATA_INVALID
+	RowDataInvalid RowData = vt.GHOSTTY_ROW_DATA_INVALID
 
 	// RowDataWrap indicates whether the row is soft-wrapped (bool).
-	RowDataWrap RowData = C.GHOSTTY_ROW_DATA_WRAP
+	RowDataWrap RowData = vt.GHOSTTY_ROW_DATA_WRAP
 
 	// RowDataWrapContinuation indicates whether the row is a continuation
 	// of a soft-wrapped row (bool).
-	RowDataWrapContinuation RowData = C.GHOSTTY_ROW_DATA_WRAP_CONTINUATION
+	RowDataWrapContinuation RowData = vt.GHOSTTY_ROW_DATA_WRAP_CONTINUATION
 
 	// RowDataGrapheme indicates whether any cells in the row have grapheme
 	// clusters (bool).
-	RowDataGrapheme RowData = C.GHOSTTY_ROW_DATA_GRAPHEME
+	RowDataGrapheme RowData = vt.GHOSTTY_ROW_DATA_GRAPHEME
 
 	// RowDataStyled indicates whether any cells in the row have styling
 	// (bool).
-	RowDataStyled RowData = C.GHOSTTY_ROW_DATA_STYLED
+	RowDataStyled RowData = vt.GHOSTTY_ROW_DATA_STYLED
 
 	// RowDataHyperlink indicates whether any cells in the row have
 	// hyperlinks (bool).
-	RowDataHyperlink RowData = C.GHOSTTY_ROW_DATA_HYPERLINK
+	RowDataHyperlink RowData = vt.GHOSTTY_ROW_DATA_HYPERLINK
 
 	// RowDataSemanticPrompt is the semantic prompt state of the row
 	// (GhosttyRowSemanticPrompt).
-	RowDataSemanticPrompt RowData = C.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT
+	RowDataSemanticPrompt RowData = vt.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT
 
 	// RowDataKittyVirtualPlaceholder indicates whether the row contains
 	// a Kitty virtual placeholder (bool).
-	RowDataKittyVirtualPlaceholder RowData = C.GHOSTTY_ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER
+	RowDataKittyVirtualPlaceholder RowData = vt.GHOSTTY_ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER
 
 	// RowDataDirty indicates whether the row is dirty and requires a
 	// redraw (bool).
-	RowDataDirty RowData = C.GHOSTTY_ROW_DATA_DIRTY
+	RowDataDirty RowData = vt.GHOSTTY_ROW_DATA_DIRTY
 )
 
 // Cell is a wrapper around a packed terminal grid cell value. Portable callers
-// should use its typed getter methods. Callers that need to avoid per-field cgo
-// calls may read [Cell.PackedValue] and decode it using the GhosttyCell layout
-// in [TypeJSON]; the packed bit positions are not stable across versions.
+// should use its typed getter methods. Callers that need to avoid per-field
+// library calls may read [Cell.PackedValue] and decode it using the
+// GhosttyCell layout in [TypeJSON]; the packed bit positions are not stable
+// across versions.
 //
 // A Cell is a copied value snapshot, not a borrowed handle, so it may be
 // retained after the [GridRef] or render-state iterator that produced it
 // becomes invalid.
 // C: GhosttyCell
 type Cell struct {
-	c C.GhosttyCell
+	c vt.GhosttyCell
 }
 
 // CellsView is a borrowed view of contiguous packed terminal cell values.
@@ -118,16 +116,22 @@ type Cell struct {
 // may be retained.
 // C: GhosttyCellsView
 type CellsView struct {
-	ptr *C.GhosttyCell
+	// ptr is the C address of the first cell, or 0 when the view is empty.
+	ptr uintptr
 	len int
 }
 
 // cellsViewFromC converts a borrowed C GhosttyCellsView to its Go wrapper.
-func cellsViewFromC(view C.GhosttyCellsView) CellsView {
+func cellsViewFromC(view vt.GhosttyCellsView) CellsView {
 	return CellsView{
-		ptr: view.ptr,
-		len: int(view.len),
+		ptr: view.Fptr,
+		len: int(view.Flen1),
 	}
+}
+
+// cells returns the view's cells as a slice over the borrowed C memory.
+func (v CellsView) cells() []vt.GhosttyCell {
+	return unsafe.Slice((*vt.GhosttyCell)(unsafe.Pointer(v.ptr)), v.len)
 }
 
 // Len returns the number of cells in the view.
@@ -138,7 +142,7 @@ func (v CellsView) Len() int {
 // Cell returns a copied cell at index. It panics when index is outside the
 // view, matching normal Go slice indexing behavior.
 func (v CellsView) Cell(index int) *Cell {
-	return &Cell{c: unsafe.Slice(v.ptr, v.len)[index]}
+	return &Cell{c: v.cells()[index]}
 }
 
 // Clone copies every cell in the view into Go-owned memory. The returned cells
@@ -148,7 +152,7 @@ func (v CellsView) Clone() []Cell {
 		return nil
 	}
 
-	raw := unsafe.Slice(v.ptr, v.len)
+	raw := v.cells()
 	result := make([]Cell, len(raw))
 	for i, cell := range raw {
 		result[i].c = cell
@@ -162,7 +166,7 @@ func (v CellsView) Clone() []Cell {
 // [GridRef] or render-state iterator that produced it becomes invalid.
 // C: GhosttyRow
 type Row struct {
-	c C.GhosttyRow
+	c vt.GhosttyRow
 }
 
 // PackedValue returns the raw packed cell value. Decode it using the
@@ -178,17 +182,17 @@ type CellContentTag int
 
 const (
 	// CellContentCodepoint means a single codepoint (may be zero for empty).
-	CellContentCodepoint CellContentTag = C.GHOSTTY_CELL_CONTENT_CODEPOINT
+	CellContentCodepoint CellContentTag = vt.GHOSTTY_CELL_CONTENT_CODEPOINT
 
 	// CellContentCodepointGrapheme means a codepoint that is part of a
 	// multi-codepoint grapheme cluster.
-	CellContentCodepointGrapheme CellContentTag = C.GHOSTTY_CELL_CONTENT_CODEPOINT_GRAPHEME
+	CellContentCodepointGrapheme CellContentTag = vt.GHOSTTY_CELL_CONTENT_CODEPOINT_GRAPHEME
 
 	// CellContentBgColorPalette means no text; background color from palette.
-	CellContentBgColorPalette CellContentTag = C.GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE
+	CellContentBgColorPalette CellContentTag = vt.GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE
 
 	// CellContentBgColorRGB means no text; background color as RGB.
-	CellContentBgColorRGB CellContentTag = C.GHOSTTY_CELL_CONTENT_BG_COLOR_RGB
+	CellContentBgColorRGB CellContentTag = vt.GHOSTTY_CELL_CONTENT_BG_COLOR_RGB
 )
 
 // CellWide describes the width behavior of a cell.
@@ -197,17 +201,17 @@ type CellWide int
 
 const (
 	// CellWideNarrow means not a wide character, cell width 1.
-	CellWideNarrow CellWide = C.GHOSTTY_CELL_WIDE_NARROW
+	CellWideNarrow CellWide = vt.GHOSTTY_CELL_WIDE_NARROW
 
 	// CellWideWide means wide character, cell width 2.
-	CellWideWide CellWide = C.GHOSTTY_CELL_WIDE_WIDE
+	CellWideWide CellWide = vt.GHOSTTY_CELL_WIDE_WIDE
 
 	// CellWideSpacerTail means spacer after wide character (do not render).
-	CellWideSpacerTail CellWide = C.GHOSTTY_CELL_WIDE_SPACER_TAIL
+	CellWideSpacerTail CellWide = vt.GHOSTTY_CELL_WIDE_SPACER_TAIL
 
 	// CellWideSpacerHead means spacer at end of soft-wrapped line for a
 	// wide character.
-	CellWideSpacerHead CellWide = C.GHOSTTY_CELL_WIDE_SPACER_HEAD
+	CellWideSpacerHead CellWide = vt.GHOSTTY_CELL_WIDE_SPACER_HEAD
 )
 
 // CellSemanticContent is the semantic content type of a cell,
@@ -217,13 +221,13 @@ type CellSemanticContent int
 
 const (
 	// CellSemanticOutput means regular output content (e.g. command output).
-	CellSemanticOutput CellSemanticContent = C.GHOSTTY_CELL_SEMANTIC_OUTPUT
+	CellSemanticOutput CellSemanticContent = vt.GHOSTTY_CELL_SEMANTIC_OUTPUT
 
 	// CellSemanticInput means content that is part of user input.
-	CellSemanticInput CellSemanticContent = C.GHOSTTY_CELL_SEMANTIC_INPUT
+	CellSemanticInput CellSemanticContent = vt.GHOSTTY_CELL_SEMANTIC_INPUT
 
 	// CellSemanticPrompt means content that is part of a shell prompt.
-	CellSemanticPrompt CellSemanticContent = C.GHOSTTY_CELL_SEMANTIC_PROMPT
+	CellSemanticPrompt CellSemanticContent = vt.GHOSTTY_CELL_SEMANTIC_PROMPT
 )
 
 // RowSemanticPrompt indicates whether any cells in a row are part of
@@ -233,21 +237,53 @@ type RowSemanticPrompt int
 
 const (
 	// RowSemanticNone means no prompt cells in this row.
-	RowSemanticNone RowSemanticPrompt = C.GHOSTTY_ROW_SEMANTIC_NONE
+	RowSemanticNone RowSemanticPrompt = vt.GHOSTTY_ROW_SEMANTIC_NONE
 
 	// RowSemanticPromptPrimary means prompt cells exist and this is a
 	// primary prompt line.
-	RowSemanticPromptPrimary RowSemanticPrompt = C.GHOSTTY_ROW_SEMANTIC_PROMPT
+	RowSemanticPromptPrimary RowSemanticPrompt = vt.GHOSTTY_ROW_SEMANTIC_PROMPT
 
 	// RowSemanticPromptContinuation means prompt cells exist and this is
 	// a continuation line.
-	RowSemanticPromptContinuation RowSemanticPrompt = C.GHOSTTY_ROW_SEMANTIC_PROMPT_CONTINUATION
+	RowSemanticPromptContinuation RowSemanticPrompt = vt.GHOSTTY_ROW_SEMANTIC_PROMPT_CONTINUATION
 )
 
-// GetMulti queries multiple cell data fields in a single cgo call.
+// cellGet reads one cell data field of C type T. The value is read into TLS
+// stack memory, because the translated code must not write through a pointer
+// to a Go variable.
+func cellGet[T any](c *Cell, data vt.GhosttyCellData) (T, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	var zero T
+	n := int(unsafe.Sizeof(zero))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	if err := resultError(vt.Xghostty_cell_get(tls, c.c, data, p)); err != nil {
+		return zero, err
+	}
+	return *(*T)(unsafe.Pointer(p)), nil
+}
+
+// rowGet reads one row data field of C type T, like cellGet.
+func rowGet[T any](r *Row, data vt.GhosttyRowData) (T, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	var zero T
+	n := int(unsafe.Sizeof(zero))
+	p := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(p)), n))
+	if err := resultError(vt.Xghostty_row_get(tls, r.c, data, p)); err != nil {
+		return zero, err
+	}
+	return *(*T)(unsafe.Pointer(p)), nil
+}
+
+// GetMulti queries multiple cell data fields in a single library call.
 // This is a low-level function. Prefer the typed getters (Codepoint,
 // Wide, HasText, etc.) for normal use. GetMulti is useful when you
-// need many fields at once and want to avoid per-field cgo overhead.
+// need many fields at once and want to avoid per-field call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -279,127 +315,98 @@ func (c *Cell) GetMulti(keys []CellData, values []unsafe.Pointer) error {
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyCellData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyCellData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_cell_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_cell_get_multi(
+		tls,
 		c.c,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
 }
 
 // Codepoint returns the codepoint of the cell (0 if empty).
 func (c *Cell) Codepoint() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_CODEPOINT, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return cellGet[uint32](c, vt.GHOSTTY_CELL_DATA_CODEPOINT)
 }
 
 // ContentTag returns the content tag describing what kind of content
 // the cell holds.
 func (c *Cell) ContentTag() (CellContentTag, error) {
-	var v C.GhosttyCellContentTag
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_CONTENT_TAG, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return CellContentTag(v), nil
+	v, err := cellGet[vt.GhosttyCellContentTag](c, vt.GHOSTTY_CELL_DATA_CONTENT_TAG)
+	return CellContentTag(v), err
 }
 
 // Wide returns the wide property of the cell.
 func (c *Cell) Wide() (CellWide, error) {
-	var v C.GhosttyCellWide
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_WIDE, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return CellWide(v), nil
+	v, err := cellGet[vt.GhosttyCellWide](c, vt.GHOSTTY_CELL_DATA_WIDE)
+	return CellWide(v), err
 }
 
 // HasText reports whether the cell has text to render.
 func (c *Cell) HasText() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_HAS_TEXT, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := cellGet[uint8](c, vt.GHOSTTY_CELL_DATA_HAS_TEXT)
+	return v != 0, err
 }
 
 // HasStyling reports whether the cell has non-default styling.
 func (c *Cell) HasStyling() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_HAS_STYLING, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := cellGet[uint8](c, vt.GHOSTTY_CELL_DATA_HAS_STYLING)
+	return v != 0, err
 }
 
 // StyleID returns the style ID for the cell.
 func (c *Cell) StyleID() (uint16, error) {
-	var v C.uint16_t
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_STYLE_ID, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
+	return cellGet[uint16](c, vt.GHOSTTY_CELL_DATA_STYLE_ID)
 }
 
 // HasHyperlink reports whether the cell has a hyperlink.
 func (c *Cell) HasHyperlink() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_HAS_HYPERLINK, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := cellGet[uint8](c, vt.GHOSTTY_CELL_DATA_HAS_HYPERLINK)
+	return v != 0, err
 }
 
 // Protected reports whether the cell is protected.
 func (c *Cell) Protected() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_PROTECTED, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := cellGet[uint8](c, vt.GHOSTTY_CELL_DATA_PROTECTED)
+	return v != 0, err
 }
 
 // Semantic returns the semantic content type of the cell.
 func (c *Cell) Semantic() (CellSemanticContent, error) {
-	var v C.GhosttyCellSemanticContent
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return CellSemanticContent(v), nil
+	v, err := cellGet[vt.GhosttyCellSemanticContent](c, vt.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT)
+	return CellSemanticContent(v), err
 }
 
 // ColorPalette returns the palette index for the cell's background
 // color. Only valid when the cell's content tag is CellContentBgColorPalette.
 func (c *Cell) ColorPalette() (uint8, error) {
-	var v C.GhosttyColorPaletteIndex
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_COLOR_PALETTE, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint8(v), nil
+	v, err := cellGet[vt.GhosttyColorPaletteIndex](c, vt.GHOSTTY_CELL_DATA_COLOR_PALETTE)
+	return uint8(v), err
 }
 
 // ColorRGB returns the RGB color for the cell's background color.
 // Only valid when the cell's content tag is CellContentBgColorRGB.
 func (c *Cell) ColorRGB() (ColorRGB, error) {
-	var v C.GhosttyColorRgb
-	if err := resultError(C.ghostty_cell_get(c.c, C.GHOSTTY_CELL_DATA_COLOR_RGB, unsafe.Pointer(&v))); err != nil {
+	v, err := cellGet[vt.GhosttyColorRgb](c, vt.GHOSTTY_CELL_DATA_COLOR_RGB)
+	if err != nil {
 		return ColorRGB{}, err
 	}
-	return ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}, nil
+	return ColorRGB{R: v.Fr, G: v.Fg, B: v.Fb}, nil
 }
 
-// GetMulti queries multiple row data fields in a single cgo call.
+// GetMulti queries multiple row data fields in a single library call.
 // This is a low-level function. Prefer the typed getters (Wrap,
 // Grapheme, Styled, Semantic, etc.) for normal use. GetMulti is
 // useful when you need many fields at once and want to avoid
-// per-field cgo overhead.
+// per-field call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -430,92 +437,71 @@ func (r *Row) GetMulti(keys []RowData, values []unsafe.Pointer) error {
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyRowData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyRowData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_row_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_row_get_multi(
+		tls,
 		r.c,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
 }
 
 // Wrap reports whether the row is soft-wrapped.
 func (r *Row) Wrap() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_WRAP, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_WRAP)
+	return v != 0, err
 }
 
 // WrapContinuation reports whether the row is a continuation of
 // a soft-wrapped row.
 func (r *Row) WrapContinuation() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_WRAP_CONTINUATION, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_WRAP_CONTINUATION)
+	return v != 0, err
 }
 
 // Grapheme reports whether any cells in the row have grapheme clusters.
 func (r *Row) Grapheme() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_GRAPHEME, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_GRAPHEME)
+	return v != 0, err
 }
 
 // Styled reports whether any cells in the row have styling
 // (may have false positives).
 func (r *Row) Styled() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_STYLED, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_STYLED)
+	return v != 0, err
 }
 
 // Hyperlink reports whether any cells in the row have hyperlinks
 // (may have false positives).
 func (r *Row) Hyperlink() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_HYPERLINK, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_HYPERLINK)
+	return v != 0, err
 }
 
 // Semantic returns the semantic prompt state of the row.
 func (r *Row) Semantic() (RowSemanticPrompt, error) {
-	var v C.GhosttyRowSemanticPrompt
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return RowSemanticPrompt(v), nil
+	v, err := rowGet[vt.GhosttyRowSemanticPrompt](r, vt.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT)
+	return RowSemanticPrompt(v), err
 }
 
 // KittyVirtualPlaceholder reports whether the row contains a
 // Kitty virtual placeholder.
 func (r *Row) KittyVirtualPlaceholder() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER)
+	return v != 0, err
 }
 
 // Dirty reports whether the row is dirty and requires a redraw.
 func (r *Row) Dirty() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_row_get(r.c, C.GHOSTTY_ROW_DATA_DIRTY, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	v, err := rowGet[uint8](r, vt.GHOSTTY_ROW_DATA_DIRTY)
+	return v != 0, err
 }

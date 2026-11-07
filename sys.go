@@ -3,77 +3,12 @@ package libghostty
 // System-level configuration wrapping ghostty_sys_set().
 // These are process-global settings that must be configured at startup.
 
-/*
-#include <ghostty/vt.h>
-#include <ghostty/vt/sys.h>
+import (
+	"unsafe"
 
-// Forward declaration for the Go log trampoline so we can take its
-// address on the C side. Uses compatible types (no const, int for enum)
-// to match what cgo generates for the //export function.
-extern void goSysLogTrampoline(
-	void* userdata,
-	int level,
-	uint8_t* scope,
-	size_t scope_len,
-	uint8_t* message,
-	size_t message_len);
-
-// Forward declaration for the Go decode-PNG trampoline.
-// Uses compatible types (no const) to match what cgo generates for
-// the //export function.
-extern _Bool goSysDecodePngTrampoline(
-	void* userdata,
-	GhosttyAllocator* allocator,
-	uint8_t* data,
-	size_t data_len,
-	GhosttySysImage* out);
-
-// Forward declaration for the Go secure-random trampoline.
-extern _Bool goSysRandomSecureTrampoline(
-	void* userdata,
-	uint8_t* buf,
-	size_t len);
-
-// Helper to install the Go log trampoline via ghostty_sys_set.
-// We need this because cgo cannot take the address of a Go-exported
-// function directly as a C function pointer.
-static inline GhosttyResult sys_set_log_go(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, (const void*)goSysLogTrampoline);
-}
-
-// Helper to install the built-in stderr log callback.
-static inline GhosttyResult sys_set_log_stderr(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, (const void*)ghostty_sys_log_stderr);
-}
-
-// Helper to clear the log callback.
-static inline GhosttyResult sys_clear_log(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_LOG, NULL);
-}
-
-// Helper to install the Go decode-PNG trampoline via ghostty_sys_set.
-static inline GhosttyResult sys_set_decode_png_go(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, (const void*)goSysDecodePngTrampoline);
-}
-
-// Helper to clear the decode-PNG callback.
-static inline GhosttyResult sys_clear_decode_png(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, NULL);
-}
-
-// Helper to install the Go secure-random trampoline via ghostty_sys_set.
-static inline GhosttyResult sys_set_random_secure_go(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_RANDOM_SECURE, (const void*)goSysRandomSecureTrampoline);
-}
-
-// Helper to restore the platform secure-random implementation.
-static inline GhosttyResult sys_clear_random_secure(void) {
-	return ghostty_sys_set(GHOSTTY_SYS_OPT_RANDOM_SECURE, NULL);
-}
-*/
-import "C"
-
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
+)
 
 // SysImage is a decoded image, returned by a [SysDecodePngFn].
 //
@@ -116,6 +51,13 @@ type SysRandomSecureFn func(data []byte) error
 // sysRandomSecureFn is the currently installed Go secure-random callback.
 var sysRandomSecureFn SysRandomSecureFn
 
+// sysSet installs a callback function pointer, or clears it when fp is 0.
+func sysSet(option vt.GhosttySysOption, fp uintptr) error {
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_sys_set(tls, option, fp))
+}
+
 // SysSetDecodePng installs a Go callback that decodes PNG image data
 // into RGBA pixels. This enables PNG support in the Kitty Graphics
 // Protocol. Pass nil to clear the callback and disable PNG decoding.
@@ -127,9 +69,9 @@ var sysRandomSecureFn SysRandomSecureFn
 func SysSetDecodePng(fn SysDecodePngFn) error {
 	sysDecodePngFn = fn
 	if fn == nil {
-		return resultError(C.sys_clear_decode_png())
+		return sysSet(vt.GHOSTTY_SYS_OPT_DECODE_PNG, 0)
 	}
-	return resultError(C.sys_set_decode_png_go())
+	return sysSet(vt.GHOSTTY_SYS_OPT_DECODE_PNG, vt.Fp(goSysDecodePngTrampoline))
 }
 
 // SysSetRandomSecure overrides libghostty's platform secure-random source.
@@ -142,9 +84,9 @@ func SysSetDecodePng(fn SysDecodePngFn) error {
 func SysSetRandomSecure(fn SysRandomSecureFn) error {
 	sysRandomSecureFn = fn
 	if fn == nil {
-		return resultError(C.sys_clear_random_secure())
+		return sysSet(vt.GHOSTTY_SYS_OPT_RANDOM_SECURE, 0)
 	}
-	return resultError(C.sys_set_random_secure_go())
+	return sysSet(vt.GHOSTTY_SYS_OPT_RANDOM_SECURE, vt.Fp(goSysRandomSecureTrampoline))
 }
 
 // SysLogLevel represents the severity level of a log message from the
@@ -154,16 +96,16 @@ type SysLogLevel int
 
 const (
 	// SysLogLevelError is the error log level.
-	SysLogLevelError SysLogLevel = C.GHOSTTY_SYS_LOG_LEVEL_ERROR
+	SysLogLevelError SysLogLevel = vt.GHOSTTY_SYS_LOG_LEVEL_ERROR
 
 	// SysLogLevelWarning is the warning log level.
-	SysLogLevelWarning SysLogLevel = C.GHOSTTY_SYS_LOG_LEVEL_WARNING
+	SysLogLevelWarning SysLogLevel = vt.GHOSTTY_SYS_LOG_LEVEL_WARNING
 
 	// SysLogLevelInfo is the info log level.
-	SysLogLevelInfo SysLogLevel = C.GHOSTTY_SYS_LOG_LEVEL_INFO
+	SysLogLevelInfo SysLogLevel = vt.GHOSTTY_SYS_LOG_LEVEL_INFO
 
 	// SysLogLevelDebug is the debug log level.
-	SysLogLevelDebug SysLogLevel = C.GHOSTTY_SYS_LOG_LEVEL_DEBUG
+	SysLogLevelDebug SysLogLevel = vt.GHOSTTY_SYS_LOG_LEVEL_DEBUG
 )
 
 // String returns a human-readable name for the log level.
@@ -205,9 +147,9 @@ var sysLogFn SysLogFn
 func SysSetLog(fn SysLogFn) error {
 	sysLogFn = fn
 	if fn == nil {
-		return resultError(C.sys_clear_log())
+		return sysSet(vt.GHOSTTY_SYS_OPT_LOG, 0)
 	}
-	return resultError(C.sys_set_log_go())
+	return sysSet(vt.GHOSTTY_SYS_OPT_LOG, vt.Fp(goSysLogTrampoline))
 }
 
 // SysSetLogStderr installs the built-in stderr log callback provided
@@ -217,17 +159,18 @@ func SysSetLog(fn SysLogFn) error {
 // This function is not safe for concurrent use. See [SysSetLog].
 func SysSetLogStderr() error {
 	sysLogFn = nil
-	return resultError(C.sys_set_log_stderr())
+	return sysSet(vt.GHOSTTY_SYS_OPT_LOG, vt.Fp(vt.Xghostty_sys_log_stderr))
 }
 
-//export goSysLogTrampoline
+// goSysLogTrampoline is the GhosttySysLogFn installed by SysSetLog.
 func goSysLogTrampoline(
-	_ unsafe.Pointer,
-	level C.int,
-	scopePtr *C.uint8_t,
-	scopeLen C.size_t,
-	messagePtr *C.uint8_t,
-	messageLen C.size_t,
+	_ *libc.TLS,
+	_ uintptr,
+	level vt.GhosttySysLogLevel,
+	scopePtr uintptr,
+	scopeLen uint64,
+	messagePtr uintptr,
+	messageLen uint64,
 ) {
 	fn := sysLogFn
 	if fn == nil {
@@ -236,28 +179,30 @@ func goSysLogTrampoline(
 
 	var scope string
 	if scopeLen > 0 {
-		scope = C.GoStringN((*C.char)(unsafe.Pointer(scopePtr)), C.int(scopeLen))
+		scope = string(goBytes(scopePtr, int(scopeLen)))
 	}
 
 	var message string
 	if messageLen > 0 {
-		message = C.GoStringN((*C.char)(unsafe.Pointer(messagePtr)), C.int(messageLen))
+		message = string(goBytes(messagePtr, int(messageLen)))
 	}
 
 	fn(SysLogLevel(level), scope, message)
 }
 
-//export goSysDecodePngTrampoline
+// goSysDecodePngTrampoline is the GhosttySysDecodePngFn installed by
+// SysSetDecodePng.
 func goSysDecodePngTrampoline(
-	_ unsafe.Pointer,
-	allocator *C.GhosttyAllocator,
-	dataPtr *C.uint8_t,
-	dataLen C.size_t,
-	out *C.GhosttySysImage,
-) C.bool {
+	tls *libc.TLS,
+	_ uintptr,
+	allocator uintptr,
+	dataPtr uintptr,
+	dataLen uint64,
+	out uintptr,
+) uint8 {
 	fn := sysDecodePngFn
 	if fn == nil {
-		return false
+		return cFalse
 	}
 
 	// Build a Go slice over the input PNG data without copying.
@@ -265,58 +210,58 @@ func goSysDecodePngTrampoline(
 
 	img, err := fn(data)
 	if err != nil || img == nil {
-		return false
+		return cFalse
 	}
 
 	// Allocate output pixel buffer through the library's allocator so
 	// the library can free it later.
-	pixelLen := C.size_t(len(img.Data))
-	buf := C.ghostty_alloc(allocator, pixelLen)
-	if buf == nil {
-		return false
+	pixelLen := uint64(len(img.Data))
+	buf := vt.Xghostty_alloc(tls, allocator, pixelLen)
+	if buf == 0 {
+		return cFalse
 	}
 
 	// Copy decoded pixels into the library-owned buffer.
 	copy(unsafe.Slice((*byte)(unsafe.Pointer(buf)), int(pixelLen)), img.Data)
 
-	// out.data is a pointer, and Go may only store a pointer into C
-	// memory that is already zeroed (see allocZeroed). libghostty zeroes
-	// out before calling us, so the fields can be set directly.
-	out.width = C.uint32_t(img.Width)
-	out.height = C.uint32_t(img.Height)
-	out.data = buf
-	out.data_len = pixelLen
+	image := (*vt.GhosttySysImage)(unsafe.Pointer(out))
+	image.Fwidth = img.Width
+	image.Fheight = img.Height
+	image.Fdata = buf
+	image.Fdata_len = pixelLen
 
-	return true
+	return cTrue
 }
 
-//export goSysRandomSecureTrampoline
+// goSysRandomSecureTrampoline is the GhosttySysRandomSecureFn installed by
+// SysSetRandomSecure.
 func goSysRandomSecureTrampoline(
-	_ unsafe.Pointer,
-	buf *C.uint8_t,
-	length C.size_t,
-) (ok C.bool) {
+	_ *libc.TLS,
+	_ uintptr,
+	buf uintptr,
+	length uint64,
+) (ok uint8) {
 	fn := sysRandomSecureFn
 	if fn == nil {
-		return C.bool(false)
+		return cFalse
 	}
 
-	// A panic must never unwind across the C boundary. A failed random source
-	// is represented by false, which makes the originating operation fail with
-	// GHOSTTY_IO_ERROR.
+	// A panic must never unwind into libghostty. A failed random source
+	// is represented by false, which makes the originating operation fail
+	// with GHOSTTY_IO_ERROR.
 	defer func() {
 		if recover() != nil {
-			ok = C.bool(false)
+			ok = cFalse
 		}
 	}()
 
 	count, valid := ghosttySizeToInt(length)
-	if !valid || (count > 0 && buf == nil) {
-		return C.bool(false)
+	if !valid || (count > 0 && buf == 0) {
+		return cFalse
 	}
 	data := unsafe.Slice((*byte)(unsafe.Pointer(buf)), count)
 	if err := fn(data); err != nil {
-		return C.bool(false)
+		return cFalse
 	}
-	return C.bool(true)
+	return cTrue
 }

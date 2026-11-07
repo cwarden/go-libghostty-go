@@ -1,12 +1,11 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-#include <ghostty/vt/build_info.h>
-*/
-import "C"
+import (
+	"unsafe"
 
-import "unsafe"
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
+)
 
 // OptimizeMode identifies the optimization mode the library was built with.
 // C: GhosttyOptimizeMode
@@ -14,16 +13,16 @@ type OptimizeMode int
 
 const (
 	// OptimizeDebug is the debug optimization mode.
-	OptimizeDebug OptimizeMode = C.GHOSTTY_OPTIMIZE_DEBUG
+	OptimizeDebug OptimizeMode = vt.GHOSTTY_OPTIMIZE_DEBUG
 
 	// OptimizeReleaseSafe is the release-safe optimization mode.
-	OptimizeReleaseSafe OptimizeMode = C.GHOSTTY_OPTIMIZE_RELEASE_SAFE
+	OptimizeReleaseSafe OptimizeMode = vt.GHOSTTY_OPTIMIZE_RELEASE_SAFE
 
 	// OptimizeReleaseSmall is the release-small optimization mode.
-	OptimizeReleaseSmall OptimizeMode = C.GHOSTTY_OPTIMIZE_RELEASE_SMALL
+	OptimizeReleaseSmall OptimizeMode = vt.GHOSTTY_OPTIMIZE_RELEASE_SMALL
 
 	// OptimizeReleaseFast is the release-fast optimization mode.
-	OptimizeReleaseFast OptimizeMode = C.GHOSTTY_OPTIMIZE_RELEASE_FAST
+	OptimizeReleaseFast OptimizeMode = vt.GHOSTTY_OPTIMIZE_RELEASE_FAST
 )
 
 // BuildInfo holds compile-time build configuration of libghostty-vt.
@@ -96,113 +95,123 @@ type BuildInfo struct {
 	FeatureGlyphProtocol bool
 }
 
+// buildInfoQuery runs one ghostty_build_info query. out is a C buffer large
+// enough for the key's output type; it is zeroed before the call.
+func buildInfoQuery(tls *libc.TLS, key vt.GhosttyBuildInfo, out uintptr, size int) vt.GhosttyResult {
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(out)), size))
+	return vt.Xghostty_build_info(tls, key, out)
+}
+
 // GetBuildInfo queries all compile-time build configuration values
 // and returns them in a single BuildInfo struct.
 func GetBuildInfo() (BuildInfo, error) {
 	var info BuildInfo
+	tls := getTLS()
+	defer putTLS(tls)
 
-	var simd C.bool
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_SIMD, unsafe.Pointer(&simd))); err != nil {
+	// A GhosttyString is the largest output type; one block serves every
+	// query.
+	const n = int(unsafe.Sizeof(vt.GhosttyString{}))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	boolAt := func() bool { return *(*uint8)(unsafe.Pointer(out)) != 0 }
+	sizeAt := func() uint { return uint(*(*uint64)(unsafe.Pointer(out))) }
+	stringAt := func() string {
+		s := *(*vt.GhosttyString)(unsafe.Pointer(out))
+		return string(goBytes(s.Fptr, int(s.Flen1)))
+	}
+
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_SIMD, out, n)); err != nil {
 		return info, err
 	}
-	info.SIMD = bool(simd)
+	info.SIMD = boolAt()
 
-	var kitty C.bool
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_KITTY_GRAPHICS, unsafe.Pointer(&kitty))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_KITTY_GRAPHICS, out, n)); err != nil {
 		return info, err
 	}
-	info.KittyGraphics = bool(kitty)
+	info.KittyGraphics = boolAt()
 
-	var tmux C.bool
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_TMUX_CONTROL_MODE, unsafe.Pointer(&tmux))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_TMUX_CONTROL_MODE, out, n)); err != nil {
 		return info, err
 	}
-	info.TmuxControlMode = bool(tmux)
+	info.TmuxControlMode = boolAt()
 
-	var opt C.GhosttyOptimizeMode
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_OPTIMIZE, unsafe.Pointer(&opt))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_OPTIMIZE, out, n)); err != nil {
 		return info, err
 	}
-	info.Optimize = OptimizeMode(opt)
+	info.Optimize = OptimizeMode(*(*vt.GhosttyOptimizeMode)(unsafe.Pointer(out)))
 
-	var verStr C.GhosttyString
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_STRING, unsafe.Pointer(&verStr))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_STRING, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionString = C.GoStringN((*C.char)(unsafe.Pointer(verStr.ptr)), C.int(verStr.len))
+	info.VersionString = stringAt()
 
-	var major C.size_t
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_MAJOR, unsafe.Pointer(&major))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_MAJOR, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionMajor = uint(major)
+	info.VersionMajor = sizeAt()
 
-	var minor C.size_t
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_MINOR, unsafe.Pointer(&minor))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_MINOR, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionMinor = uint(minor)
+	info.VersionMinor = sizeAt()
 
-	var patch C.size_t
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_PATCH, unsafe.Pointer(&patch))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_PATCH, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionPatch = uint(patch)
+	info.VersionPatch = sizeAt()
 
-	var verPre C.GhosttyString
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_PRE, unsafe.Pointer(&verPre))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_PRE, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionPre = C.GoStringN((*C.char)(unsafe.Pointer(verPre.ptr)), C.int(verPre.len))
+	info.VersionPre = stringAt()
 
-	var verBuild C.GhosttyString
-	if err := resultError(C.ghostty_build_info(C.GHOSTTY_BUILD_INFO_VERSION_BUILD, unsafe.Pointer(&verBuild))); err != nil {
+	if err := resultError(buildInfoQuery(tls, vt.GHOSTTY_BUILD_INFO_VERSION_BUILD, out, n)); err != nil {
 		return info, err
 	}
-	info.VersionBuild = C.GoStringN((*C.char)(unsafe.Pointer(verBuild.ptr)), C.int(verBuild.len))
+	info.VersionBuild = stringAt()
 
 	// Each optional feature has a key that reports whether the library was
 	// built with it. A call into a missing feature returns [ErrUnsupported].
 	features := [...]struct {
-		key C.GhosttyBuildInfo
+		key vt.GhosttyBuildInfo
 		out *bool
 	}{
-		{C.GHOSTTY_BUILD_INFO_FEATURE_SNAPSHOT, &info.FeatureSnapshot},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_FORMATTER, &info.FeatureFormatter},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_SELECTION, &info.FeatureSelection},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_SEARCH, &info.FeatureSearch},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_RENDER_STATE, &info.FeatureRenderState},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_INPUT_ENCODE, &info.FeatureInputEncode},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_COLOR, &info.FeatureColor},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_GRID_INTROSPECTION, &info.FeatureGridIntrospection},
-		{C.GHOSTTY_BUILD_INFO_FEATURE_GLYPH_PROTOCOL, &info.FeatureGlyphProtocol},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_SNAPSHOT, &info.FeatureSnapshot},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_FORMATTER, &info.FeatureFormatter},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_SELECTION, &info.FeatureSelection},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_SEARCH, &info.FeatureSearch},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_RENDER_STATE, &info.FeatureRenderState},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_INPUT_ENCODE, &info.FeatureInputEncode},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_COLOR, &info.FeatureColor},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_GRID_INTROSPECTION, &info.FeatureGridIntrospection},
+		{vt.GHOSTTY_BUILD_INFO_FEATURE_GLYPH_PROTOCOL, &info.FeatureGlyphProtocol},
 	}
 	for _, feature := range features {
-		// A shared library older than the headers doesn't know a newer key,
+		// A library older than the headers doesn't know a newer key,
 		// which means it doesn't have that feature, so that isn't a failure.
-		var enabled C.bool
-		result := C.ghostty_build_info(feature.key, unsafe.Pointer(&enabled))
-		if result == C.GHOSTTY_UNSUPPORTED {
+		result := buildInfoQuery(tls, feature.key, out, n)
+		if result == vt.GHOSTTY_UNSUPPORTED {
 			continue
 		}
 		if err := resultError(result); err != nil {
 			return info, err
 		}
-		*feature.out = bool(enabled)
+		*feature.out = boolAt()
 	}
 
 	return info, nil
 }
 
-// Version returns the full version of the loaded library, such as
+// Version returns the full version of the library, such as
 // "0.1.0-dev+9a018f5cc". It is the same text as [BuildInfo.VersionString], but
 // needs no query and cannot fail.
 //
-// Compare it with [HeaderVersion] to see what this package was compiled
-// against. The two can differ when linking the shared library, which is where
-// the check matters: every 0.x release uses the same shared library name, so
-// the system will load a 0.2 library for a program built against 0.1.
+// Compare it with [HeaderVersion] to see what this package was generated
+// from. The library is built into this package, so the two agree.
 // C: ghostty_version
 func Version() string {
-	return C.GoString(C.ghostty_version())
+	tls := getTLS()
+	defer putTLS(tls)
+	return libc.GoString(vt.Xghostty_version(tls))
 }

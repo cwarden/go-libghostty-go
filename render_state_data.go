@@ -3,48 +3,18 @@ package libghostty
 // Render state data getters and setters wrapping
 // ghostty_render_state_get() and ghostty_render_state_set().
 // Functions are ordered alphabetically.
-
-/*
-#include <ghostty/vt.h>
-
-// Helper to create a properly initialized GhosttyRenderStateCursor (sized struct).
-static inline GhosttyRenderStateCursor init_render_state_cursor() {
-	GhosttyRenderStateCursor c = GHOSTTY_INIT_SIZED(GhosttyRenderStateCursor);
-	return c;
-}
-
-// Helper to create a properly initialized GhosttyRenderStateColors (sized struct).
-static inline GhosttyRenderStateColors init_render_state_colors() {
-	GhosttyRenderStateColors c = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
-	return c;
-}
-
-// render_state_u64 is a uint64_t value read from a render state, with the
-// result of reading it.
-typedef struct {
-	GhosttyResult result;
-	uint64_t value;
-} render_state_u64;
-
-// render_state_get_u64 reads a uint64_t value from a render state and
-// returns it by value. Go code could pass C a pointer to a local variable
-// instead, but cgo would then move that variable to the heap, which costs
-// an allocation on every call. Renderers read these values every frame, so
-// the value stays on the C stack instead.
-static inline render_state_u64 render_state_get_u64(
-	GhosttyRenderState state,
-	GhosttyRenderStateData data
-) {
-	render_state_u64 out = {0};
-	out.result = ghostty_render_state_get(state, data, &out.value);
-	return out;
-}
-*/
-import "C"
+//
+// Every value is read into TLS stack memory, which the translated
+// libghostty may address, and copied out from there. A Go local variable
+// cannot be used as the out-parameter: the translated code runs on the
+// goroutine's stack, which the runtime may move during the call.
 
 import (
 	"errors"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // RenderStateData identifies a data field for render state queries.
@@ -53,133 +23,170 @@ type RenderStateData int
 
 const (
 	// RenderStateDataInvalid is an invalid / sentinel value.
-	RenderStateDataInvalid RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_INVALID
+	RenderStateDataInvalid RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_INVALID
 
 	// RenderStateDataCols is the viewport width in cells (uint16_t).
-	RenderStateDataCols RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLS
+	RenderStateDataCols RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLS
 
 	// RenderStateDataRows is the viewport height in cells, excluding overscan (uint16_t).
-	RenderStateDataRows RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_ROWS
+	RenderStateDataRows RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_ROWS
 
 	// RenderStateDataOverscan is the number of extra rows captured by the last update
 	// (GhosttyRenderStateOverscan).
-	RenderStateDataOverscan RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_OVERSCAN
+	RenderStateDataOverscan RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_OVERSCAN
 
 	// RenderStateDataOverscanRequest is the request used for the next update
 	// (GhosttyRenderStateOverscan).
-	RenderStateDataOverscanRequest RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST
+	RenderStateDataOverscanRequest RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST
 
 	// RenderStateDataDirty is the current dirty state
 	// (GhosttyRenderStateDirty).
-	RenderStateDataDirty RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_DIRTY
+	RenderStateDataDirty RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_DIRTY
 
 	// RenderStateDataRowIterator populates a pre-allocated row iterator
 	// (GhosttyRenderStateRowIterator).
-	RenderStateDataRowIterator RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR
+	RenderStateDataRowIterator RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR
 
 	// RenderStateDataImageIterator fills an existing image iterator with
 	// the image placements from the last update
 	// (GhosttyRenderStateImageIterator).
-	RenderStateDataImageIterator RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR
+	RenderStateDataImageIterator RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR
 
 	// RenderStateDataImagePlacementsGeneration changes whenever an update
 	// changes the images listed by [RenderStateDataImageIterator]
 	// (uint64_t). See [RenderState.ImagePlacementsGeneration].
-	RenderStateDataImagePlacementsGeneration RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION
+	RenderStateDataImagePlacementsGeneration RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION
 
 	// RenderStateDataColorBackground is the default/current background
 	// color (GhosttyColorRgb).
-	RenderStateDataColorBackground RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND
+	RenderStateDataColorBackground RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND
 
 	// RenderStateDataColorForeground is the default/current foreground
 	// color (GhosttyColorRgb).
-	RenderStateDataColorForeground RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND
+	RenderStateDataColorForeground RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND
 
 	// RenderStateDataColorCursor is the cursor color when explicitly set
 	// (GhosttyColorRgb).
-	RenderStateDataColorCursor RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
+	RenderStateDataColorCursor RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
 
 	// RenderStateDataColorCursorHasValue indicates whether an explicit
 	// cursor color is set (bool).
-	RenderStateDataColorCursorHasValue RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE
+	RenderStateDataColorCursorHasValue RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE
 
 	// RenderStateDataColorPalette is the active 256-color palette
 	// (GhosttyColorRgb[256]).
-	RenderStateDataColorPalette RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLOR_PALETTE
+	RenderStateDataColorPalette RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLOR_PALETTE
 
 	// RenderStateDataCursorVisualStyle is the visual style of the cursor
 	// (GhosttyCursorStyle).
-	RenderStateDataCursorVisualStyle RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE
+	RenderStateDataCursorVisualStyle RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE
 
 	// RenderStateDataCursorVisible indicates whether the cursor is visible
 	// based on terminal modes (bool).
-	RenderStateDataCursorVisible RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE
+	RenderStateDataCursorVisible RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE
 
 	// RenderStateDataCursorBlinking indicates whether the cursor should
 	// blink based on terminal modes (bool).
-	RenderStateDataCursorBlinking RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING
+	RenderStateDataCursorBlinking RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING
 
 	// RenderStateDataCursorPasswordInput indicates whether the cursor is
 	// at a password input field (bool).
-	RenderStateDataCursorPasswordInput RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_PASSWORD_INPUT
+	RenderStateDataCursorPasswordInput RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_PASSWORD_INPUT
 
 	// RenderStateDataCursorViewportHasValue indicates whether the cursor
 	// is visible within the viewport (bool).
-	RenderStateDataCursorViewportHasValue RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE
+	RenderStateDataCursorViewportHasValue RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE
 
 	// RenderStateDataCursorViewportX is the cursor viewport x position
 	// in cells (uint16_t).
-	RenderStateDataCursorViewportX RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X
+	RenderStateDataCursorViewportX RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X
 
 	// RenderStateDataCursorViewportY is the cursor viewport y position
 	// in cells (uint16_t).
-	RenderStateDataCursorViewportY RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y
+	RenderStateDataCursorViewportY RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y
 
 	// RenderStateDataCursorViewportWideTail indicates whether the cursor
 	// is on the tail of a wide character (bool).
-	RenderStateDataCursorViewportWideTail RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL
+	RenderStateDataCursorViewportWideTail RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL
 
 	// RenderStateDataCursor is all cursor state in one sized struct
 	// (GhosttyRenderStateCursor).
-	RenderStateDataCursor RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_CURSOR
+	RenderStateDataCursor RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_CURSOR
 
 	// RenderStateDataColors is all render-state colors in one sized struct
 	// (GhosttyRenderStateColors).
-	RenderStateDataColors RenderStateData = C.GHOSTTY_RENDER_STATE_DATA_COLORS
+	RenderStateDataColors RenderStateData = vt.GHOSTTY_RENDER_STATE_DATA_COLORS
 )
+
+// scratchSize is the size of the TLS stack block that the scalar getters
+// below read their values into. It holds any scalar or small struct value.
+const scratchSize = 16
+
+// get reads data into TLS stack memory of size bytes and passes the block
+// to read, which copies the value out. The block is not zeroed.
+func (rs *RenderState) get(data vt.GhosttyRenderStateData, size int, read func(tls *libc.TLS, out uintptr)) error {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	if err := resultError(vt.Xghostty_render_state_get(tls, rs.ptr, data, out)); err != nil {
+		return err
+	}
+	read(tls, out)
+	return nil
+}
+
+// getUint16 reads a uint16_t value.
+func (rs *RenderState) getUint16(data vt.GhosttyRenderStateData) (uint16, error) {
+	var v uint16
+	err := rs.get(data, scratchSize, func(_ *libc.TLS, out uintptr) { v = *(*uint16)(unsafe.Pointer(out)) })
+	return v, err
+}
+
+// getBool reads a bool value.
+func (rs *RenderState) getBool(data vt.GhosttyRenderStateData) (bool, error) {
+	var v bool
+	err := rs.get(data, scratchSize, func(_ *libc.TLS, out uintptr) { v = *(*uint8)(unsafe.Pointer(out)) != 0 })
+	return v, err
+}
+
+// getInt32 reads an int32_t or enum value.
+func (rs *RenderState) getInt32(data vt.GhosttyRenderStateData) (int32, error) {
+	var v int32
+	err := rs.get(data, scratchSize, func(_ *libc.TLS, out uintptr) { v = *(*int32)(unsafe.Pointer(out)) })
+	return v, err
+}
+
+// getColor reads a GhosttyColorRgb value.
+func (rs *RenderState) getColor(data vt.GhosttyRenderStateData) (ColorRGB, error) {
+	var v ColorRGB
+	err := rs.get(data, scratchSize, func(_ *libc.TLS, out uintptr) { v = colorRGBFromC(*(*vt.GhosttyColorRgb)(unsafe.Pointer(out))) })
+	return v, err
+}
 
 // Cols returns the viewport width in cells.
 func (rs *RenderState) Cols() (uint16, error) {
-	var v C.uint16_t
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLS, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
+	return rs.getUint16(vt.GHOSTTY_RENDER_STATE_DATA_COLS)
 }
 
 // ColorBackground returns the default/current background color.
 func (rs *RenderState) ColorBackground() (ColorRGB, error) {
-	var v C.GhosttyColorRgb
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND, unsafe.Pointer(&v))); err != nil {
-		return ColorRGB{}, err
-	}
-	return ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}, nil
+	return rs.getColor(vt.GHOSTTY_RENDER_STATE_DATA_COLOR_BACKGROUND)
 }
 
 // ColorCursor returns the cursor color when explicitly set by terminal
 // state. Returns nil (without error) when no explicit cursor color is set.
 func (rs *RenderState) ColorCursor() (*ColorRGB, error) {
 	// Check whether a cursor color is set first.
-	var has C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, unsafe.Pointer(&has))); err != nil {
+	has, err := rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE)
+	if err != nil {
 		return nil, err
 	}
-	if !bool(has) {
+	if !has {
 		return nil, nil
 	}
 
-	var v C.GhosttyColorRgb
-	err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR, unsafe.Pointer(&v)))
+	c, err := rs.getColor(vt.GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR)
 	if err != nil {
 		var ge *Error
 		if errors.As(err, &ge) && ge.Result == ResultInvalidValue {
@@ -187,28 +194,25 @@ func (rs *RenderState) ColorCursor() (*ColorRGB, error) {
 		}
 		return nil, err
 	}
-	c := ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}
 	return &c, nil
 }
 
 // ColorForeground returns the default/current foreground color.
 func (rs *RenderState) ColorForeground() (ColorRGB, error) {
-	var v C.GhosttyColorRgb
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, unsafe.Pointer(&v))); err != nil {
-		return ColorRGB{}, err
-	}
-	return ColorRGB{R: uint8(v.r), G: uint8(v.g), B: uint8(v.b)}, nil
+	return rs.getColor(vt.GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND)
 }
 
 // ColorPalette returns the active 256-color palette.
 func (rs *RenderState) ColorPalette() (*Palette, error) {
-	var cp [PaletteSize]C.GhosttyColorRgb
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_COLOR_PALETTE, unsafe.Pointer(&cp[0]))); err != nil {
-		return nil, err
-	}
 	var p Palette
-	for i, c := range cp {
-		p[i] = ColorRGB{R: uint8(c.r), G: uint8(c.g), B: uint8(c.b)}
+	size := int(unsafe.Sizeof([PaletteSize]vt.GhosttyColorRgb{}))
+	err := rs.get(vt.GHOSTTY_RENDER_STATE_DATA_COLOR_PALETTE, size, func(_ *libc.TLS, out uintptr) {
+		for i, c := range (*[PaletteSize]vt.GhosttyColorRgb)(unsafe.Pointer(out)) {
+			p[i] = colorRGBFromC(c)
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &p, nil
 }
@@ -216,57 +220,73 @@ func (rs *RenderState) ColorPalette() (*Palette, error) {
 // Colors returns all color information from the render state in a
 // single call using the sized-struct API.
 func (rs *RenderState) Colors() (*RenderStateColors, error) {
-	cc := C.init_render_state_colors()
-	if err := resultError(C.ghostty_render_state_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	size := int(unsafe.Sizeof(vt.GhosttyRenderStateColors{}))
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	// GHOSTTY_INIT_SIZED: a zeroed struct whose size field is set.
+	cc := (*vt.GhosttyRenderStateColors)(unsafe.Pointer(out))
+	*cc = vt.GhosttyRenderStateColors{Fsize: uint64(size)}
+	if err := resultError(vt.Xghostty_render_state_get(
+		tls,
 		rs.ptr,
-		C.GHOSTTY_RENDER_STATE_DATA_COLORS,
-		unsafe.Pointer(&cc),
+		vt.GHOSTTY_RENDER_STATE_DATA_COLORS,
+		out,
 	)); err != nil {
 		return nil, err
 	}
 
 	result := &RenderStateColors{
-		Background:     ColorRGB{R: uint8(cc.background.r), G: uint8(cc.background.g), B: uint8(cc.background.b)},
-		Foreground:     ColorRGB{R: uint8(cc.foreground.r), G: uint8(cc.foreground.g), B: uint8(cc.foreground.b)},
-		Cursor:         ColorRGB{R: uint8(cc.cursor.r), G: uint8(cc.cursor.g), B: uint8(cc.cursor.b)},
-		CursorHasValue: bool(cc.cursor_has_value),
+		Background:     colorRGBFromC(cc.Fbackground),
+		Foreground:     colorRGBFromC(cc.Fforeground),
+		Cursor:         colorRGBFromC(cc.Fcursor),
+		CursorHasValue: cc.Fcursor_has_value != 0,
 	}
 
-	for i, c := range cc.palette {
-		result.Palette[i] = ColorRGB{R: uint8(c.r), G: uint8(c.g), B: uint8(c.b)}
+	for i, c := range cc.Fpalette {
+		result.Palette[i] = colorRGBFromC(c)
 	}
 	return result, nil
 }
 
 // Cursor returns all cursor information from the render state in one call.
 // This is the preferred cursor read for render loops because it avoids the
-// separate cgo transition required by each scalar cursor getter.
+// separate call into libghostty required by each scalar cursor getter.
 func (rs *RenderState) Cursor() (*RenderStateCursor, error) {
-	cc := C.init_render_state_cursor()
-	if err := resultError(C.ghostty_render_state_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	size := int(unsafe.Sizeof(vt.GhosttyRenderStateCursor{}))
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	// GHOSTTY_INIT_SIZED: a zeroed struct whose size field is set.
+	cc := (*vt.GhosttyRenderStateCursor)(unsafe.Pointer(out))
+	*cc = vt.GhosttyRenderStateCursor{Fsize: uint64(size)}
+	if err := resultError(vt.Xghostty_render_state_get(
+		tls,
 		rs.ptr,
-		C.GHOSTTY_RENDER_STATE_DATA_CURSOR,
-		unsafe.Pointer(&cc),
+		vt.GHOSTTY_RENDER_STATE_DATA_CURSOR,
+		out,
 	)); err != nil {
 		return nil, err
 	}
 
 	return &RenderStateCursor{
-		ViewportHasValue: bool(cc.viewport_has_value),
-		ViewportX:        uint16(cc.viewport_x),
-		ViewportY:        uint16(cc.viewport_y),
-		WideTail:         bool(cc.wide_tail),
-		Visible:          bool(cc.visible),
-		Blinking:         bool(cc.blinking),
-		PasswordInput:    bool(cc.password_input),
-		VisualStyle:      CursorStyle(cc.visual_style),
+		ViewportHasValue: cc.Fviewport_has_value != 0,
+		ViewportX:        cc.Fviewport_x,
+		ViewportY:        cc.Fviewport_y,
+		WideTail:         cc.Fwide_tail != 0,
+		Visible:          cc.Fvisible != 0,
+		Blinking:         cc.Fblinking != 0,
+		PasswordInput:    cc.Fpassword_input != 0,
+		VisualStyle:      CursorStyle(cc.Fvisual_style),
 	}, nil
 }
 
-// GetMulti queries multiple render state data fields in a single cgo
+// GetMulti queries multiple render state data fields in a single
 // call. This is a low-level function. Prefer the typed getters (Cols,
 // Rows, CursorVisible, etc.) for normal use. GetMulti is useful when
-// you need many fields at once and want to avoid per-field cgo overhead.
+// you need many fields at once and want to avoid per-field call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -297,108 +317,77 @@ func (rs *RenderState) GetMulti(keys []RenderStateData, values []unsafe.Pointer)
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyRenderStateData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyRenderStateData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_render_state_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_render_state_get_multi(
+		tls,
 		rs.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
 }
 
 // CursorBlinking reports whether the cursor should blink based on
 // terminal modes.
 func (rs *RenderState) CursorBlinking() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)
 }
 
 // CursorPasswordInput reports whether the cursor is at a password
 // input field.
 func (rs *RenderState) CursorPasswordInput() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_PASSWORD_INPUT, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_PASSWORD_INPUT)
 }
 
 // CursorVisible reports whether the cursor is visible based on
 // terminal modes.
 func (rs *RenderState) CursorVisible() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE)
 }
 
 // CursorVisualStyle returns the visual style of the cursor.
 func (rs *RenderState) CursorVisualStyle() (CursorStyle, error) {
-	var v C.GhosttyCursorStyle
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return CursorStyle(v), nil
+	v, err := rs.getInt32(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE)
+	return CursorStyle(v), err
 }
 
 // CursorViewportHasValue reports whether the cursor is visible within
 // the viewport. If false, the cursor viewport position values are
 // undefined.
 func (rs *RenderState) CursorViewportHasValue() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE)
 }
 
 // CursorViewportWideTail reports whether the cursor is on the tail
 // of a wide character. Only valid when CursorViewportHasValue
 // returns true.
 func (rs *RenderState) CursorViewportWideTail() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL, unsafe.Pointer(&v))); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	return rs.getBool(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL)
 }
 
 // CursorViewportX returns the cursor viewport x position in cells.
 // Only valid when CursorViewportHasValue returns true.
 func (rs *RenderState) CursorViewportX() (uint16, error) {
-	var v C.uint16_t
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
+	return rs.getUint16(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X)
 }
 
 // CursorViewportY returns the cursor viewport y position in cells.
 // Only valid when CursorViewportHasValue returns true.
 func (rs *RenderState) CursorViewportY() (uint16, error) {
-	var v C.uint16_t
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
+	return rs.getUint16(vt.GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y)
 }
 
 // Dirty returns the current dirty state.
 func (rs *RenderState) Dirty() (RenderStateDirty, error) {
-	var v C.GhosttyRenderStateDirty
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_DIRTY, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return RenderStateDirty(v), nil
+	v, err := rs.getInt32(vt.GHOSTTY_RENDER_STATE_DATA_DIRTY)
+	return RenderStateDirty(v), err
 }
 
 // ImageIterator fills iter with the images to draw from the last update.
@@ -410,11 +399,22 @@ func (rs *RenderState) Dirty() (RenderStateDirty, error) {
 // same iterator can be reused each time. To skip reading the list on
 // frames where no image changed, use [RenderState.ImagePlacementsGeneration].
 func (rs *RenderState) ImageIterator(iter *RenderStateImageIterator) error {
-	return resultError(C.ghostty_render_state_get(
-		rs.ptr,
-		C.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR,
-		unsafe.Pointer(&iter.ptr),
-	))
+	return rs.getHandle(vt.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR, &iter.ptr)
+}
+
+// getHandle passes an existing handle to libghostty, which fills the
+// object it points to, and stores the handle it writes back.
+func (rs *RenderState) getHandle(data vt.GhosttyRenderStateData, handle *uintptr) error {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(handleSize)
+	defer tls.Free(handleSize)
+	*(*uintptr)(unsafe.Pointer(out)) = *handle
+	if err := resultError(vt.Xghostty_render_state_get(tls, rs.ptr, data, out)); err != nil {
+		return err
+	}
+	*handle = *(*uintptr)(unsafe.Pointer(out))
+	return nil
 }
 
 // ImagePlacementsGeneration returns a value that changes whenever an
@@ -447,11 +447,11 @@ func (rs *RenderState) ImageIterator(iter *RenderStateImageIterator) error {
 //
 // C: GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION
 func (rs *RenderState) ImagePlacementsGeneration() (uint64, error) {
-	v := C.render_state_get_u64(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION)
-	if err := resultError(v.result); err != nil {
-		return 0, err
-	}
-	return uint64(v.value), nil
+	var v uint64
+	err := rs.get(vt.GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION, scratchSize, func(_ *libc.TLS, out uintptr) {
+		v = *(*uint64)(unsafe.Pointer(out))
+	})
+	return v, err
 }
 
 // RowIterator initializes ri to iterate over the rows from the last update.
@@ -462,26 +462,22 @@ func (rs *RenderState) ImagePlacementsGeneration() (uint64, error) {
 // The iterator can be reused by calling RowIterator again. Its data is valid
 // only until the next call to [RenderState.Update].
 func (rs *RenderState) RowIterator(ri *RenderStateRowIterator) error {
-	return resultError(C.ghostty_render_state_get(
-		rs.ptr,
-		C.GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR,
-		unsafe.Pointer(&ri.ptr),
-	))
+	return rs.getHandle(vt.GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &ri.ptr)
 }
 
 // Rows returns the viewport height in cells, excluding overscan.
 func (rs *RenderState) Rows() (uint16, error) {
-	var v C.uint16_t
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, C.GHOSTTY_RENDER_STATE_DATA_ROWS, unsafe.Pointer(&v))); err != nil {
-		return 0, err
-	}
-	return uint16(v), nil
+	return rs.getUint16(vt.GHOSTTY_RENDER_STATE_DATA_ROWS)
 }
 
 // SetDirty sets the dirty state.
 func (rs *RenderState) SetDirty(dirty RenderStateDirty) error {
-	v := C.GhosttyRenderStateDirty(dirty)
-	return resultError(C.ghostty_render_state_set(rs.ptr, C.GHOSTTY_RENDER_STATE_OPT_DIRTY, unsafe.Pointer(&v)))
+	tls := getTLS()
+	defer putTLS(tls)
+	v := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	*(*vt.GhosttyRenderStateDirty)(unsafe.Pointer(v)) = vt.GhosttyRenderStateDirty(dirty)
+	return resultError(vt.Xghostty_render_state_set(tls, rs.ptr, vt.GHOSTTY_RENDER_STATE_OPT_DIRTY, v))
 }
 
 // SetOverscan sets the number of extra rows to capture above and below the
@@ -494,8 +490,12 @@ func (rs *RenderState) SetDirty(dirty RenderStateDirty) error {
 //
 // C: GHOSTTY_RENDER_STATE_OPT_OVERSCAN
 func (rs *RenderState) SetOverscan(request RenderStateOverscan) error {
-	v := C.GhosttyRenderStateOverscan{above: C.uint16_t(request.Above), below: C.uint16_t(request.Below)}
-	return resultError(C.ghostty_render_state_set(rs.ptr, C.GHOSTTY_RENDER_STATE_OPT_OVERSCAN, unsafe.Pointer(&v)))
+	tls := getTLS()
+	defer putTLS(tls)
+	v := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	*(*vt.GhosttyRenderStateOverscan)(unsafe.Pointer(v)) = vt.GhosttyRenderStateOverscan{Fabove: request.Above, Fbelow: request.Below}
+	return resultError(vt.Xghostty_render_state_set(tls, rs.ptr, vt.GHOSTTY_RENDER_STATE_OPT_OVERSCAN, v))
 }
 
 // Overscan returns the number of extra rows captured by the last update.
@@ -507,21 +507,22 @@ func (rs *RenderState) SetOverscan(request RenderStateOverscan) error {
 // refer to the visible viewport and are available only when the cursor is
 // inside it.
 func (rs *RenderState) Overscan() (RenderStateOverscan, error) {
-	return rs.getOverscan(C.GHOSTTY_RENDER_STATE_DATA_OVERSCAN)
+	return rs.getOverscan(vt.GHOSTTY_RENDER_STATE_DATA_OVERSCAN)
 }
 
 // OverscanRequest returns the counts most recently set by [RenderState.SetOverscan].
 // Both counts are zero if SetOverscan has not been called. The next update uses
 // this request. Use [RenderState.Overscan] for the counts from the last update.
 func (rs *RenderState) OverscanRequest() (RenderStateOverscan, error) {
-	return rs.getOverscan(C.GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST)
+	return rs.getOverscan(vt.GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST)
 }
 
 // getOverscan reads either the requested or captured overscan counts.
-func (rs *RenderState) getOverscan(data C.GhosttyRenderStateData) (RenderStateOverscan, error) {
-	var v C.GhosttyRenderStateOverscan
-	if err := resultError(C.ghostty_render_state_get(rs.ptr, data, unsafe.Pointer(&v))); err != nil {
-		return RenderStateOverscan{}, err
-	}
-	return RenderStateOverscan{Above: uint16(v.above), Below: uint16(v.below)}, nil
+func (rs *RenderState) getOverscan(data vt.GhosttyRenderStateData) (RenderStateOverscan, error) {
+	var v RenderStateOverscan
+	err := rs.get(data, scratchSize, func(_ *libc.TLS, out uintptr) {
+		c := (*vt.GhosttyRenderStateOverscan)(unsafe.Pointer(out))
+		v = RenderStateOverscan{Above: c.Fabove, Below: c.Fbelow}
+	})
+	return v, err
 }

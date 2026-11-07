@@ -4,22 +4,14 @@ package libghostty
 // Provides access to images and placements stored via the Kitty graphics
 // protocol.
 
-/*
-#include <ghostty/vt.h>
-
-// Helper to create a properly initialized GhosttyKittyGraphicsPlacementRenderInfo (sized struct).
-static inline GhosttyKittyGraphicsPlacementRenderInfo init_kitty_placement_render_info() {
-	GhosttyKittyGraphicsPlacementRenderInfo info = GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsPlacementRenderInfo);
-	return info;
-}
-*/
-import "C"
-
 import (
 	"errors"
 	"math"
 	"time"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // KittyGraphicsData identifies a storage-level Kitty graphics query.
@@ -28,13 +20,13 @@ type KittyGraphicsData int
 
 const (
 	// KittyGraphicsDataInvalid is an invalid or sentinel query.
-	KittyGraphicsDataInvalid KittyGraphicsData = C.GHOSTTY_KITTY_GRAPHICS_DATA_INVALID
+	KittyGraphicsDataInvalid KittyGraphicsData = vt.GHOSTTY_KITTY_GRAPHICS_DATA_INVALID
 
 	// KittyGraphicsDataPlacementIterator populates a placement iterator.
-	KittyGraphicsDataPlacementIterator KittyGraphicsData = C.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR
+	KittyGraphicsDataPlacementIterator KittyGraphicsData = vt.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR
 
 	// KittyGraphicsDataGeneration returns the storage-wide mutation stamp.
-	KittyGraphicsDataGeneration KittyGraphicsData = C.GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION
+	KittyGraphicsDataGeneration KittyGraphicsData = vt.GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION
 )
 
 // KittyGraphicsImageData identifies a data field for Kitty graphics
@@ -44,41 +36,41 @@ type KittyGraphicsImageData int
 
 const (
 	// KittyGraphicsImageDataInvalid is an invalid / sentinel value.
-	KittyGraphicsImageDataInvalid KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_INVALID
+	KittyGraphicsImageDataInvalid KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_INVALID
 
 	// KittyGraphicsImageDataID is the image ID (uint32_t).
-	KittyGraphicsImageDataID KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID
+	KittyGraphicsImageDataID KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID
 
 	// KittyGraphicsImageDataNumber is the image number (uint32_t).
-	KittyGraphicsImageDataNumber KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER
+	KittyGraphicsImageDataNumber KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER
 
 	// KittyGraphicsImageDataWidth is the image width in pixels (uint32_t).
-	KittyGraphicsImageDataWidth KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH
+	KittyGraphicsImageDataWidth KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH
 
 	// KittyGraphicsImageDataHeight is the image height in pixels (uint32_t).
-	KittyGraphicsImageDataHeight KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT
+	KittyGraphicsImageDataHeight KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT
 
 	// KittyGraphicsImageDataFormat is the pixel format of the image
 	// (GhosttyKittyImageFormat).
-	KittyGraphicsImageDataFormat KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT
+	KittyGraphicsImageDataFormat KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT
 
 	// KittyGraphicsImageDataCompression is the compression of the image
 	// (GhosttyKittyImageCompression).
-	KittyGraphicsImageDataCompression KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION
+	KittyGraphicsImageDataCompression KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION
 
 	// KittyGraphicsImageDataPixels is the image's pixel data (GhosttyString).
 	// The string points into memory owned by the terminal and stays valid until
 	// the terminal is next modified. It returns [ResultNoValue] if the image's
 	// pixels have not arrived yet. Prefer [KittyGraphicsImage.Pixels].
-	KittyGraphicsImageDataPixels KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS
+	KittyGraphicsImageDataPixels KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS
 
 	// KittyGraphicsImageDataExpectedLen is the size of the image's pixel data
 	// in bytes (size_t). It is available even before the pixels arrive.
-	KittyGraphicsImageDataExpectedLen KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN
+	KittyGraphicsImageDataExpectedLen KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN
 
 	// KittyGraphicsImageDataGeneration is the image's content generation
 	// stamp (uint64_t).
-	KittyGraphicsImageDataGeneration KittyGraphicsImageData = C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION
+	KittyGraphicsImageDataGeneration KittyGraphicsImageData = vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION
 )
 
 // KittyGraphicsPlacementData identifies a data field for Kitty graphics
@@ -88,54 +80,54 @@ type KittyGraphicsPlacementData int
 
 const (
 	// KittyGraphicsPlacementDataInvalid is an invalid / sentinel value.
-	KittyGraphicsPlacementDataInvalid KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_INVALID
+	KittyGraphicsPlacementDataInvalid KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_INVALID
 
 	// KittyGraphicsPlacementDataImageID is the image ID this placement
 	// belongs to (uint32_t).
-	KittyGraphicsPlacementDataImageID KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID
+	KittyGraphicsPlacementDataImageID KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID
 
 	// KittyGraphicsPlacementDataPlacementID is the placement ID (uint32_t).
-	KittyGraphicsPlacementDataPlacementID KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID
+	KittyGraphicsPlacementDataPlacementID KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID
 
 	// KittyGraphicsPlacementDataIsVirtual indicates whether this is a
 	// virtual placement (bool).
-	KittyGraphicsPlacementDataIsVirtual KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL
+	KittyGraphicsPlacementDataIsVirtual KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL
 
 	// KittyGraphicsPlacementDataXOffset is the pixel offset from the left
 	// edge of the cell (uint32_t).
-	KittyGraphicsPlacementDataXOffset KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET
+	KittyGraphicsPlacementDataXOffset KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET
 
 	// KittyGraphicsPlacementDataYOffset is the pixel offset from the top
 	// edge of the cell (uint32_t).
-	KittyGraphicsPlacementDataYOffset KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET
+	KittyGraphicsPlacementDataYOffset KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET
 
 	// KittyGraphicsPlacementDataSourceX is the source rectangle x origin
 	// in pixels (uint32_t).
-	KittyGraphicsPlacementDataSourceX KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X
+	KittyGraphicsPlacementDataSourceX KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X
 
 	// KittyGraphicsPlacementDataSourceY is the source rectangle y origin
 	// in pixels (uint32_t).
-	KittyGraphicsPlacementDataSourceY KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y
+	KittyGraphicsPlacementDataSourceY KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y
 
 	// KittyGraphicsPlacementDataSourceWidth is the source rectangle width
 	// in pixels (uint32_t).
-	KittyGraphicsPlacementDataSourceWidth KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH
+	KittyGraphicsPlacementDataSourceWidth KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH
 
 	// KittyGraphicsPlacementDataSourceHeight is the source rectangle height
 	// in pixels (uint32_t).
-	KittyGraphicsPlacementDataSourceHeight KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT
+	KittyGraphicsPlacementDataSourceHeight KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT
 
 	// KittyGraphicsPlacementDataColumns is the number of columns this
 	// placement occupies (uint32_t).
-	KittyGraphicsPlacementDataColumns KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS
+	KittyGraphicsPlacementDataColumns KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS
 
 	// KittyGraphicsPlacementDataRows is the number of rows this placement
 	// occupies (uint32_t).
-	KittyGraphicsPlacementDataRows KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS
+	KittyGraphicsPlacementDataRows KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS
 
 	// KittyGraphicsPlacementDataZ is the z-index for this placement
 	// (int32_t).
-	KittyGraphicsPlacementDataZ KittyGraphicsPlacementData = C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z
+	KittyGraphicsPlacementDataZ KittyGraphicsPlacementData = vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z
 )
 
 // KittyGraphics is a handle to the Kitty graphics image storage
@@ -146,7 +138,7 @@ const (
 //
 // C: GhosttyKittyGraphics
 type KittyGraphics struct {
-	ptr C.GhosttyKittyGraphics
+	ptr vt.GhosttyKittyGraphics
 }
 
 // KittyGraphicsImage is a handle to a single Kitty graphics image.
@@ -157,7 +149,7 @@ type KittyGraphics struct {
 //
 // C: GhosttyKittyGraphicsImage
 type KittyGraphicsImage struct {
-	ptr C.GhosttyKittyGraphicsImage
+	ptr vt.GhosttyKittyGraphicsImage
 }
 
 // KittyGraphicsPlacementIterator iterates over placements in the
@@ -177,7 +169,7 @@ type KittyGraphicsImage struct {
 //
 // C: GhosttyKittyGraphicsPlacementIterator
 type KittyGraphicsPlacementIterator struct {
-	ptr C.GhosttyKittyGraphicsPlacementIterator
+	ptr vt.GhosttyKittyGraphicsPlacementIterator
 }
 
 // KittyImageFormat describes the pixel format of a Kitty graphics image.
@@ -187,19 +179,19 @@ type KittyImageFormat int
 
 const (
 	// KittyImageFormatRGB is 24-bit RGB (3 bytes per pixel).
-	KittyImageFormatRGB KittyImageFormat = C.GHOSTTY_KITTY_IMAGE_FORMAT_RGB
+	KittyImageFormatRGB KittyImageFormat = vt.GHOSTTY_KITTY_IMAGE_FORMAT_RGB
 
 	// KittyImageFormatRGBA is 32-bit RGBA (4 bytes per pixel).
-	KittyImageFormatRGBA KittyImageFormat = C.GHOSTTY_KITTY_IMAGE_FORMAT_RGBA
+	KittyImageFormatRGBA KittyImageFormat = vt.GHOSTTY_KITTY_IMAGE_FORMAT_RGBA
 
 	// KittyImageFormatPNG is compressed PNG data.
-	KittyImageFormatPNG KittyImageFormat = C.GHOSTTY_KITTY_IMAGE_FORMAT_PNG
+	KittyImageFormatPNG KittyImageFormat = vt.GHOSTTY_KITTY_IMAGE_FORMAT_PNG
 
 	// KittyImageFormatGrayAlpha is 16-bit gray+alpha (2 bytes per pixel).
-	KittyImageFormatGrayAlpha KittyImageFormat = C.GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA
+	KittyImageFormatGrayAlpha KittyImageFormat = vt.GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA
 
 	// KittyImageFormatGray is 8-bit grayscale (1 byte per pixel).
-	KittyImageFormatGray KittyImageFormat = C.GHOSTTY_KITTY_IMAGE_FORMAT_GRAY
+	KittyImageFormatGray KittyImageFormat = vt.GHOSTTY_KITTY_IMAGE_FORMAT_GRAY
 )
 
 // KittyImageCompression describes the compression of a Kitty graphics image.
@@ -209,10 +201,10 @@ type KittyImageCompression int
 
 const (
 	// KittyImageCompressionNone means no compression.
-	KittyImageCompressionNone KittyImageCompression = C.GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE
+	KittyImageCompressionNone KittyImageCompression = vt.GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE
 
 	// KittyImageCompressionZlibDeflate means zlib/deflate compression.
-	KittyImageCompressionZlibDeflate KittyImageCompression = C.GHOSTTY_KITTY_IMAGE_COMPRESSION_ZLIB_DEFLATE
+	KittyImageCompressionZlibDeflate KittyImageCompression = vt.GHOSTTY_KITTY_IMAGE_COMPRESSION_ZLIB_DEFLATE
 )
 
 // Selection represents a grid selection range defined by two grid
@@ -234,17 +226,17 @@ type Selection struct {
 }
 
 // selectionFromC converts a C GhosttySelection to a Go Selection.
-func selectionFromC(cs C.GhosttySelection) Selection {
+func selectionFromC(cs vt.GhosttySelection) Selection {
 	return Selection{
-		Start:     GridRef{ref: cs.start},
-		End:       GridRef{ref: cs.end},
-		Rectangle: bool(cs.rectangle),
+		Start:     GridRef{ref: cs.Fstart},
+		End:       GridRef{ref: cs.Fend},
+		Rectangle: cs.Frectangle != 0,
 	}
 }
 
 // KittyGraphicsImageInfo contains all image metadata in a single struct.
 // This is a Go-only convenience type; it has no corresponding C struct.
-// Populated via get_multi in a single cgo call.
+// Populated via get_multi in a single call.
 type KittyGraphicsImageInfo struct {
 	// ID is the image ID.
 	ID uint32
@@ -284,7 +276,7 @@ type KittyGraphicsImageInfo struct {
 
 // KittyGraphicsPlacementInfo contains all placement metadata in a single
 // struct. This is a Go-only convenience type; it has no corresponding
-// C struct. Populated via get_multi in a single cgo call.
+// C struct. Populated via get_multi in a single call.
 type KittyGraphicsPlacementInfo struct {
 	// ImageID is the image ID this placement belongs to.
 	ImageID uint32
@@ -325,7 +317,7 @@ type KittyGraphicsPlacementInfo struct {
 
 // KittyGraphicsPlacementRenderInfo contains all rendering geometry for a
 // placement in a single struct. Combines pixel size, grid size, viewport
-// position, and source rectangle into one cgo call.
+// position, and source rectangle into one call.
 //
 // Use it to inspect the storage. When drawing, use [RenderStateImageInfo]
 // instead, which has the same values for every image on screen.
@@ -372,15 +364,41 @@ type KittyGraphicsPlacementRenderInfo struct {
 	SourceHeight uint32
 }
 
+// outValue calls get with an 8-byte block of TLS stack memory for the
+// value libghostty writes, and returns the block's bytes. The block is
+// zeroed first so that a value narrower than 8 bytes can be read from
+// the front of the result.
+func outValue(get func(tls *libc.TLS, out uintptr) vt.GhosttyResult) ([8]byte, error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	*(*[8]byte)(unsafe.Pointer(out)) = [8]byte{}
+	if err := resultError(get(tls, out)); err != nil {
+		return [8]byte{}, err
+	}
+	return *(*[8]byte)(unsafe.Pointer(out)), nil
+}
+
 // PlacementIterator populates the given iterator with placement data
 // from this storage. The iterator must have been created with
 // NewKittyGraphicsPlacementIterator.
 func (kg *KittyGraphics) PlacementIterator(iter *KittyGraphicsPlacementIterator) error {
-	return resultError(C.ghostty_kitty_graphics_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(handleSize)
+	defer tls.Free(handleSize)
+	*(*uintptr)(unsafe.Pointer(out)) = iter.ptr
+	if err := resultError(vt.Xghostty_kitty_graphics_get(
+		tls,
 		kg.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR,
-		unsafe.Pointer(&iter.ptr),
-	))
+		vt.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR,
+		out,
+	)); err != nil {
+		return err
+	}
+	iter.ptr = *(*uintptr)(unsafe.Pointer(out))
+	return nil
 }
 
 // Generation returns a value that changes whenever a program sends,
@@ -396,15 +414,13 @@ func (kg *KittyGraphics) PlacementIterator(iter *KittyGraphicsPlacementIterator)
 // that depends only on what the storage holds, such as freeing the
 // textures of deleted images.
 func (kg *KittyGraphics) Generation() (uint64, error) {
-	var generation C.uint64_t
-	if err := resultError(C.ghostty_kitty_graphics_get(
-		kg.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION,
-		unsafe.Pointer(&generation),
-	)); err != nil {
+	b, err := outValue(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_get(tls, kg.ptr, vt.GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION, out)
+	})
+	if err != nil {
 		return 0, err
 	}
-	return uint64(generation), nil
+	return *(*uint64)(unsafe.Pointer(&b)), nil
 }
 
 // AdvanceAnimations moves every playing Kitty graphics animation to the
@@ -450,12 +466,9 @@ func (kg *KittyGraphics) AdvanceAnimations(now time.Duration) (next time.Duratio
 	// around to a time far in the future.
 	nowMs := max(now.Milliseconds(), 0)
 
-	var nextMs C.uint64_t
-	err = resultError(C.ghostty_kitty_graphics_animation_tick(
-		kg.ptr,
-		C.uint64_t(nowMs),
-		&nextMs,
-	))
+	b, err := outValue(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_animation_tick(tls, kg.ptr, uint64(nowMs), out)
+	})
 	if errors.Is(err, ErrNoValue) {
 		// Nothing is playing. This is the normal idle state, not a failure.
 		return 0, false, nil
@@ -463,11 +476,12 @@ func (kg *KittyGraphics) AdvanceAnimations(now time.Duration) (next time.Duratio
 	if err != nil {
 		return 0, false, err
 	}
+	nextMs := *(*uint64)(unsafe.Pointer(&b))
 
 	// libghostty saturates the next time instead of overflowing. Do the
 	// same when converting to a Duration, which has a smaller range.
 	const maxMs = uint64(math.MaxInt64 / int64(time.Millisecond))
-	if uint64(nextMs) > maxMs {
+	if nextMs > maxMs {
 		return time.Duration(math.MaxInt64), true, nil
 	}
 	return time.Duration(nextMs) * time.Millisecond, true, nil
@@ -476,70 +490,55 @@ func (kg *KittyGraphics) AdvanceAnimations(now time.Duration) (next time.Duratio
 // Image looks up a Kitty graphics image by its image ID. Returns nil
 // if no image with the given ID exists.
 func (kg *KittyGraphics) Image(imageID uint32) *KittyGraphicsImage {
-	ptr := C.ghostty_kitty_graphics_image(kg.ptr, C.uint32_t(imageID))
-	if ptr == nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	ptr := vt.Xghostty_kitty_graphics_image(tls, kg.ptr, imageID)
+	if ptr == 0 {
 		return nil
 	}
 	return &KittyGraphicsImage{ptr: ptr}
 }
 
+// get reads one value of the image, whose C type is listed for data on
+// [KittyGraphicsImageData], into 8 bytes of TLS stack memory and returns
+// them.
+func (img *KittyGraphicsImage) get(data vt.GhosttyKittyGraphicsImageData) ([8]byte, error) {
+	return outValue(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_image_get(tls, img.ptr, data, out)
+	})
+}
+
+// getUint32 reads a uint32_t value of the image.
+func (img *KittyGraphicsImage) getUint32(data vt.GhosttyKittyGraphicsImageData) (uint32, error) {
+	b, err := img.get(data)
+	return *(*uint32)(unsafe.Pointer(&b)), err
+}
+
 // ID returns the image ID.
 func (img *KittyGraphicsImage) ID() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return img.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID)
 }
 
 // Number returns the image number.
 func (img *KittyGraphicsImage) Number() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return img.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER)
 }
 
 // Width returns the image width in pixels.
 func (img *KittyGraphicsImage) Width() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return img.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH)
 }
 
 // Height returns the image height in pixels.
 func (img *KittyGraphicsImage) Height() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return img.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT)
 }
 
-// GetMulti queries multiple image data fields in a single cgo call.
+// GetMulti queries multiple image data fields in a single call.
 // This is a low-level function. Prefer the typed getters (ID, Width,
 // Height, Format, etc.) or Info() for normal use. GetMulti is useful
 // when you need a custom subset of fields and want to avoid per-field
-// cgo overhead.
+// call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -571,94 +570,78 @@ func (img *KittyGraphicsImage) GetMulti(keys []KittyGraphicsImageData, values []
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyKittyGraphicsImageData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyKittyGraphicsImageData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_kitty_graphics_image_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_kitty_graphics_image_get_multi(
+		tls,
 		img.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
 }
 
 // Format returns the pixel format of the image.
 func (img *KittyGraphicsImage) Format() (KittyImageFormat, error) {
-	var v C.GhosttyKittyImageFormat
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return KittyImageFormat(v), nil
+	b, err := img.get(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT)
+	return KittyImageFormat(*(*int32)(unsafe.Pointer(&b))), err
 }
 
 // Compression returns the compression of the image.
 func (img *KittyGraphicsImage) Compression() (KittyImageCompression, error) {
-	var v C.GhosttyKittyImageCompression
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return KittyImageCompression(v), nil
+	b, err := img.get(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION)
+	return KittyImageCompression(*(*int32)(unsafe.Pointer(&b))), err
 }
 
 // Generation returns the process-wide content generation stamp. It changes
 // when the image is added or replaced and whenever an animated image advances
 // to another frame.
 func (img *KittyGraphicsImage) Generation() (uint64, error) {
-	var generation C.uint64_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
-		unsafe.Pointer(&generation),
-	)); err != nil {
-		return 0, err
-	}
-	return uint64(generation), nil
+	b, err := img.get(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION)
+	return *(*uint64)(unsafe.Pointer(&b)), err
 }
 
-// Info returns all image metadata and pixels in a single cgo call. This is more
+// Info returns all image metadata and pixels in a single call. This is more
 // efficient than calling every getter individually. Pending images still return
 // their metadata and ExpectedLen, with PixelsPending=true and Pixels nil.
 func (img *KittyGraphicsImage) Info() (*KittyGraphicsImageInfo, error) {
-	// Output variables — one per field, typed to match the C API.
+	// Output variables — one per field, typed to match the C API. The
+	// pinner in getMultiArgs keeps them on the heap, where libghostty can
+	// write to them.
 	var (
-		id          C.uint32_t
-		number      C.uint32_t
-		width       C.uint32_t
-		height      C.uint32_t
-		format      C.GhosttyKittyImageFormat
-		compression C.GhosttyKittyImageCompression
-		generation  C.uint64_t
-		expectedLen C.size_t
-		pixels      C.GhosttyString
+		id          uint32
+		number      uint32
+		width       uint32
+		height      uint32
+		format      vt.GhosttyKittyImageFormat
+		compression vt.GhosttyKittyImageCompression
+		generation  uint64
+		expectedLen uint64
+		pixels      vt.GhosttyString
 	)
 
 	// Keys identify which fields to fetch; order must match values. Pixels
 	// must stay last. get_multi stops at the first key that fails, and a pending
 	// image fails only on its pixels, so every other value is still written.
-	keys := [...]C.GhosttyKittyGraphicsImageData{
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
+	keys := [...]vt.GhosttyKittyGraphicsImageData{
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_ID,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_NUMBER,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_WIDTH,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_HEIGHT,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_COMPRESSION,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_GENERATION,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN,
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
 	}
 
-	// Each value pointer receives the corresponding field from C.
+	// Each value pointer receives the corresponding field from libghostty.
 	values := [...]unsafe.Pointer{
 		unsafe.Pointer(&id),
 		unsafe.Pointer(&number),
@@ -678,30 +661,39 @@ func (img *KittyGraphicsImage) Info() (*KittyGraphicsImageInfo, error) {
 	}
 	defer args.free()
 
-	var written C.size_t
-	result := C.ghostty_kitty_graphics_image_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	// The keys and the written count live in TLS stack memory.
+	const keysSize = len(keys) * 4
+	cKeys := tls.Alloc(keysSize + 8)
+	defer tls.Free(keysSize + 8)
+	*(*[len(keys)]vt.GhosttyKittyGraphicsImageData)(unsafe.Pointer(cKeys)) = keys
+	written := cKeys + uintptr(keysSize)
+	*(*uint64)(unsafe.Pointer(written)) = 0
+	result := vt.Xghostty_kitty_graphics_image_get_multi(
+		tls,
 		img.ptr,
-		C.size_t(len(keys)),
-		&keys[0],
-		args.values,
-		&written,
+		uint64(len(keys)),
+		cKeys,
+		uintptr(unsafe.Pointer(args.values)),
+		written,
 	)
 
 	// NO_VALUE from the last key means the image is pending. From any other key
 	// it would leave fields unset, so it is a real error like any other result.
-	pending := result == C.GHOSTTY_NO_VALUE && int(written) == len(keys)-1
+	pending := result == vt.GHOSTTY_NO_VALUE && int(*(*uint64)(unsafe.Pointer(written))) == len(keys)-1
 	if err := resultError(result); err != nil && !pending {
 		return nil, err
 	}
 
 	info := &KittyGraphicsImageInfo{
-		ID:            uint32(id),
-		Number:        uint32(number),
-		Width:         uint32(width),
-		Height:        uint32(height),
+		ID:            id,
+		Number:        number,
+		Width:         width,
+		Height:        height,
 		Format:        KittyImageFormat(format),
 		Compression:   KittyImageCompression(compression),
-		Generation:    uint64(generation),
+		Generation:    generation,
 		ExpectedLen:   uint(expectedLen),
 		PixelsPending: pending,
 	}
@@ -722,15 +714,21 @@ func (img *KittyGraphicsImage) Info() (*KittyGraphicsImageInfo, error) {
 // [KittyGraphicsImage.ExpectedLen] to inspect its expected size. Use
 // [KittyGraphicsImage.Generation] to invalidate frame caches.
 func (img *KittyGraphicsImage) Pixels() ([]byte, error) {
-	var pixels C.GhosttyString
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
+	tls := getTLS()
+	defer putTLS(tls)
+	size := int(unsafe.Sizeof(vt.GhosttyString{}))
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	*(*vt.GhosttyString)(unsafe.Pointer(out)) = vt.GhosttyString{}
+	if err := resultError(vt.Xghostty_kitty_graphics_image_get(
+		tls,
 		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
-		unsafe.Pointer(&pixels),
+		vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_PIXELS,
+		out,
 	)); err != nil {
 		return nil, err
 	}
-	return borrowGhosttyBytes(pixels)
+	return borrowGhosttyBytes(*(*vt.GhosttyString)(unsafe.Pointer(out)))
 }
 
 // ExpectedLen returns the size of the image's pixel data in bytes, which is
@@ -738,29 +736,22 @@ func (img *KittyGraphicsImage) Pixels() ([]byte, error) {
 // this is the size reserved against the storage limit even though
 // [KittyGraphicsImage.Pixels] returns [ResultNoValue].
 func (img *KittyGraphicsImage) ExpectedLen() (uint, error) {
-	var length C.size_t
-	if err := resultError(C.ghostty_kitty_graphics_image_get(
-		img.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN,
-		unsafe.Pointer(&length),
-	)); err != nil {
-		return 0, err
-	}
-	return uint(length), nil
+	b, err := img.get(vt.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_EXPECTED_LEN)
+	return uint(*(*uint64)(unsafe.Pointer(&b))), err
 }
 
 // borrowGhosttyBytes views a borrowed GhosttyString as a Go byte slice without
 // copying it. The slice is only valid for as long as the string is. It returns
 // nil for an empty string.
-func borrowGhosttyBytes(value C.GhosttyString) ([]byte, error) {
-	length, valid := ghosttySizeToInt(value.len)
+func borrowGhosttyBytes(value vt.GhosttyString) ([]byte, error) {
+	length, valid := ghosttySizeToInt(value.Flen1)
 	if !valid {
 		return nil, &Error{Result: ResultLimitExceeded}
 	}
-	if value.ptr == nil || length == 0 {
+	if value.Fptr == 0 || length == 0 {
 		return nil, nil
 	}
-	return unsafe.Slice((*byte)(unsafe.Pointer(value.ptr)), length), nil
+	return unsafe.Slice((*byte)(unsafe.Pointer(value.Fptr)), length), nil
 }
 
 // NewKittyGraphicsPlacementIterator creates a new placement iterator.
@@ -768,21 +759,26 @@ func borrowGhosttyBytes(value C.GhosttyString) ([]byte, error) {
 // iterate with Next and read fields with the getter methods.
 // The iterator must be freed by calling Close.
 func NewKittyGraphicsPlacementIterator() (*KittyGraphicsPlacementIterator, error) {
-	var ptr C.GhosttyKittyGraphicsPlacementIterator
-	if err := resultError(C.ghostty_kitty_graphics_placement_iterator_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(handleSize)
+	defer tls.Free(handleSize)
+	if err := resultError(vt.Xghostty_kitty_graphics_placement_iterator_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &KittyGraphicsPlacementIterator{ptr: ptr}, nil
+	return &KittyGraphicsPlacementIterator{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close frees the placement iterator. After this call, the iterator
 // must not be used, except that calling Close again is a safe no-op.
 func (it *KittyGraphicsPlacementIterator) Close() {
-	if it == nil || it.ptr == nil {
+	if it == nil || it.ptr == 0 {
 		return
 	}
-	C.ghostty_kitty_graphics_placement_iterator_free(it.ptr)
-	it.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_kitty_graphics_placement_iterator_free(tls, it.ptr)
+	it.ptr = 0
 }
 
 // SetLayers filters the placements returned by Next to the layers in mask,
@@ -799,25 +795,32 @@ func (it *KittyGraphicsPlacementIterator) Close() {
 // [RenderStateImageInfo.Layer] instead. It follows the same rules and also
 // covers virtual placements.
 func (it *KittyGraphicsPlacementIterator) SetLayers(mask ImageLayerMask) error {
-	v := C.uint32_t(mask)
-	return resultError(C.ghostty_kitty_graphics_placement_iterator_set(
+	tls := getTLS()
+	defer putTLS(tls)
+	v := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	*(*uint32)(unsafe.Pointer(v)) = uint32(mask)
+	return resultError(vt.Xghostty_kitty_graphics_placement_iterator_set(
+		tls,
 		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER,
-		unsafe.Pointer(&v),
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER,
+		v,
 	))
 }
 
 // Next advances the iterator to the next placement. Returns true if
 // a placement is available, false when iteration is complete.
 func (it *KittyGraphicsPlacementIterator) Next() bool {
-	return bool(C.ghostty_kitty_graphics_placement_next(it.ptr))
+	tls := getTLS()
+	defer putTLS(tls)
+	return vt.Xghostty_kitty_graphics_placement_next(tls, it.ptr) != 0
 }
 
-// GetMulti queries multiple placement data fields in a single cgo
+// GetMulti queries multiple placement data fields in a single
 // call. This is a low-level function. Prefer the typed getters
 // (ImageID, PlacementID, Z, etc.) or Info() for normal use. GetMulti
 // is useful when you need a custom subset of fields and want to avoid
-// per-field cgo overhead.
+// per-field call overhead.
 //
 // Each element in keys specifies a data kind, and the corresponding
 // element in values must be an unsafe.Pointer to a variable whose type
@@ -850,44 +853,46 @@ func (it *KittyGraphicsPlacementIterator) GetMulti(keys []KittyGraphicsPlacement
 	}
 	// Copy the keys and output pointers into C memory. See get_multi.go.
 	var args getMultiArgs
-	cKeys, err := allocWithKeys[C.GhosttyKittyGraphicsPlacementData](&args, keys, values)
+	cKeys, err := allocWithKeys[vt.GhosttyKittyGraphicsPlacementData](&args, keys, values)
 	if err != nil {
 		return err
 	}
 	defer args.free()
-	return resultError(C.ghostty_kitty_graphics_placement_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	return resultError(vt.Xghostty_kitty_graphics_placement_get_multi(
+		tls,
 		it.ptr,
-		C.size_t(len(keys)),
-		cKeys,
-		args.values,
-		nil,
+		uint64(len(keys)),
+		uintptr(unsafe.Pointer(cKeys)),
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	))
+}
+
+// get reads one value of the current placement, whose C type is listed
+// for data on [KittyGraphicsPlacementData], into 8 bytes of TLS stack
+// memory and returns them.
+func (it *KittyGraphicsPlacementIterator) get(data vt.GhosttyKittyGraphicsPlacementData) ([8]byte, error) {
+	return outValue(func(tls *libc.TLS, out uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_placement_get(tls, it.ptr, data, out)
+	})
+}
+
+// getUint32 reads a uint32_t value of the current placement.
+func (it *KittyGraphicsPlacementIterator) getUint32(data vt.GhosttyKittyGraphicsPlacementData) (uint32, error) {
+	b, err := it.get(data)
+	return *(*uint32)(unsafe.Pointer(&b)), err
 }
 
 // ImageID returns the image ID of the current placement.
 func (it *KittyGraphicsPlacementIterator) ImageID() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID)
 }
 
 // PlacementID returns the placement ID of the current placement.
 func (it *KittyGraphicsPlacementIterator) PlacementID() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID)
 }
 
 // IsVirtual reports whether the current placement is a virtual
@@ -898,175 +903,99 @@ func (it *KittyGraphicsPlacementIterator) PlacementID() (uint32, error) {
 // finds those cells and positions the image like any other, so renderers
 // don't need to check IsVirtual.
 func (it *KittyGraphicsPlacementIterator) IsVirtual() (bool, error) {
-	var v C.bool
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return false, err
-	}
-	return bool(v), nil
+	b, err := it.get(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL)
+	return b[0] != 0, err
 }
 
 // XOffset returns the pixel offset from the left edge of the cell.
 func (it *KittyGraphicsPlacementIterator) XOffset() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET)
 }
 
 // YOffset returns the pixel offset from the top edge of the cell.
 func (it *KittyGraphicsPlacementIterator) YOffset() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET)
 }
 
 // SourceX returns the source rectangle x origin in pixels.
 func (it *KittyGraphicsPlacementIterator) SourceX() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X)
 }
 
 // SourceY returns the source rectangle y origin in pixels.
 func (it *KittyGraphicsPlacementIterator) SourceY() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y)
 }
 
 // SourceWidth returns the source rectangle width in pixels
 // (0 = full image width).
 func (it *KittyGraphicsPlacementIterator) SourceWidth() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH)
 }
 
 // SourceHeight returns the source rectangle height in pixels
 // (0 = full image height).
 func (it *KittyGraphicsPlacementIterator) SourceHeight() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT)
 }
 
 // Columns returns the number of columns this placement occupies.
 func (it *KittyGraphicsPlacementIterator) Columns() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS)
 }
 
 // Rows returns the number of rows this placement occupies.
 func (it *KittyGraphicsPlacementIterator) Rows() (uint32, error) {
-	var v C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return uint32(v), nil
+	return it.getUint32(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS)
 }
 
 // Z returns the z-index of the current placement.
 func (it *KittyGraphicsPlacementIterator) Z() (int32, error) {
-	var v C.int32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_get(
-		it.ptr,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z,
-		unsafe.Pointer(&v),
-	)); err != nil {
-		return 0, err
-	}
-	return int32(v), nil
+	b, err := it.get(vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z)
+	return *(*int32)(unsafe.Pointer(&b)), err
 }
 
 // Info returns all placement metadata in a single call. This is more
 // efficient than calling ImageID, PlacementID, IsVirtual, XOffset,
 // YOffset, SourceX, SourceY, SourceWidth, SourceHeight, Columns,
 // Rows, and Z individually. Uses the get_multi C API to fetch all
-// fields in one cgo round-trip.
+// fields in one round-trip.
 func (it *KittyGraphicsPlacementIterator) Info() (*KittyGraphicsPlacementInfo, error) {
-	// Output variables — one per field, typed to match the C API.
+	// Output variables — one per field, typed to match the C API. The
+	// pinner in getMultiArgs keeps them on the heap, where libghostty can
+	// write to them.
 	var (
-		imageID      C.uint32_t
-		placementID  C.uint32_t
-		isVirtual    C.bool
-		xOffset      C.uint32_t
-		yOffset      C.uint32_t
-		sourceX      C.uint32_t
-		sourceY      C.uint32_t
-		sourceWidth  C.uint32_t
-		sourceHeight C.uint32_t
-		columns      C.uint32_t
-		rows         C.uint32_t
-		z            C.int32_t
+		imageID      uint32
+		placementID  uint32
+		isVirtual    uint8
+		xOffset      uint32
+		yOffset      uint32
+		sourceX      uint32
+		sourceY      uint32
+		sourceWidth  uint32
+		sourceHeight uint32
+		columns      uint32
+		rows         uint32
+		z            int32
 	)
 
 	// Keys identify which fields to fetch; order must match values.
-	keys := [...]C.GhosttyKittyGraphicsPlacementData{
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS,
-		C.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z,
+	keys := [...]vt.GhosttyKittyGraphicsPlacementData{
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS,
+		vt.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z,
 	}
 
-	// Each value pointer receives the corresponding field from C.
+	// Each value pointer receives the corresponding field from libghostty.
 	values := [...]unsafe.Pointer{
 		unsafe.Pointer(&imageID),
 		unsafe.Pointer(&placementID),
@@ -1089,35 +1018,44 @@ func (it *KittyGraphicsPlacementIterator) Info() (*KittyGraphicsPlacementInfo, e
 	}
 	defer args.free()
 
-	if err := resultError(C.ghostty_kitty_graphics_placement_get_multi(
+	tls := getTLS()
+	defer putTLS(tls)
+	// The keys live in TLS stack memory.
+	const keysSize = len(keys) * 4
+	cKeys := tls.Alloc(keysSize)
+	defer tls.Free(keysSize)
+	*(*[len(keys)]vt.GhosttyKittyGraphicsPlacementData)(unsafe.Pointer(cKeys)) = keys
+
+	if err := resultError(vt.Xghostty_kitty_graphics_placement_get_multi(
+		tls,
 		it.ptr,
-		C.size_t(len(keys)),
-		&keys[0],
-		args.values,
-		nil,
+		uint64(len(keys)),
+		cKeys,
+		uintptr(unsafe.Pointer(args.values)),
+		0,
 	)); err != nil {
 		return nil, err
 	}
 
 	return &KittyGraphicsPlacementInfo{
-		ImageID:      uint32(imageID),
-		PlacementID:  uint32(placementID),
-		IsVirtual:    bool(isVirtual),
-		XOffset:      uint32(xOffset),
-		YOffset:      uint32(yOffset),
-		SourceX:      uint32(sourceX),
-		SourceY:      uint32(sourceY),
-		SourceWidth:  uint32(sourceWidth),
-		SourceHeight: uint32(sourceHeight),
-		Columns:      uint32(columns),
-		Rows:         uint32(rows),
-		Z:            int32(z),
+		ImageID:      imageID,
+		PlacementID:  placementID,
+		IsVirtual:    isVirtual != 0,
+		XOffset:      xOffset,
+		YOffset:      yOffset,
+		SourceX:      sourceX,
+		SourceY:      sourceY,
+		SourceWidth:  sourceWidth,
+		SourceHeight: sourceHeight,
+		Columns:      columns,
+		Rows:         rows,
+		Z:            z,
 	}, nil
 }
 
 // RenderInfo returns all rendering geometry for the current placement
 // in a single call. This combines the results of PixelSize, GridSize,
-// ViewportPos, and SourceRect into one cgo call.
+// ViewportPos, and SourceRect into one call.
 //
 // Use it to inspect the storage. When drawing, use
 // [RenderStateImageIterator] instead. It has the same values for every
@@ -1127,28 +1065,36 @@ func (it *KittyGraphicsPlacementIterator) Info() (*KittyGraphicsPlacementInfo, e
 // RenderInfo succeeds even when the placement isn't in the viewport.
 // Check ViewportVisible before using ViewportCol and ViewportRow.
 func (it *KittyGraphicsPlacementIterator) RenderInfo(img *KittyGraphicsImage, t *Terminal) (*KittyGraphicsPlacementRenderInfo, error) {
-	ci := C.init_kitty_placement_render_info()
-	if err := resultError(C.ghostty_kitty_graphics_placement_render_info(
+	tls := getTLS()
+	defer putTLS(tls)
+	size := int(unsafe.Sizeof(vt.GhosttyKittyGraphicsPlacementRenderInfo{}))
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	// GHOSTTY_INIT_SIZED: a zeroed struct whose size field is set.
+	ci := (*vt.GhosttyKittyGraphicsPlacementRenderInfo)(unsafe.Pointer(out))
+	*ci = vt.GhosttyKittyGraphicsPlacementRenderInfo{Fsize: uint64(size)}
+	if err := resultError(vt.Xghostty_kitty_graphics_placement_render_info(
+		tls,
 		it.ptr,
 		img.ptr,
 		t.ptr,
-		&ci,
+		out,
 	)); err != nil {
 		return nil, err
 	}
 
 	return &KittyGraphicsPlacementRenderInfo{
-		PixelWidth:      uint32(ci.pixel_width),
-		PixelHeight:     uint32(ci.pixel_height),
-		GridCols:        uint32(ci.grid_cols),
-		GridRows:        uint32(ci.grid_rows),
-		ViewportCol:     int32(ci.viewport_col),
-		ViewportRow:     int32(ci.viewport_row),
-		ViewportVisible: bool(ci.viewport_visible),
-		SourceX:         uint32(ci.source_x),
-		SourceY:         uint32(ci.source_y),
-		SourceWidth:     uint32(ci.source_width),
-		SourceHeight:    uint32(ci.source_height),
+		PixelWidth:      ci.Fpixel_width,
+		PixelHeight:     ci.Fpixel_height,
+		GridCols:        ci.Fgrid_cols,
+		GridRows:        ci.Fgrid_rows,
+		ViewportCol:     ci.Fviewport_col,
+		ViewportRow:     ci.Fviewport_row,
+		ViewportVisible: ci.Fviewport_visible != 0,
+		SourceX:         ci.Fsource_x,
+		SourceY:         ci.Fsource_y,
+		SourceWidth:     ci.Fsource_width,
+		SourceHeight:    ci.Fsource_height,
 	}, nil
 }
 
@@ -1156,50 +1102,63 @@ func (it *KittyGraphicsPlacementIterator) RenderInfo(img *KittyGraphicsImage, t 
 // Virtual placements (unicode placeholders) return an error with
 // ResultNoValue.
 func (it *KittyGraphicsPlacementIterator) Rect(img *KittyGraphicsImage, t *Terminal) (*Selection, error) {
-	var cs C.GhosttySelection
-	if err := resultError(C.ghostty_kitty_graphics_placement_rect(
+	tls := getTLS()
+	defer putTLS(tls)
+	size := int(unsafe.Sizeof(vt.GhosttySelection{}))
+	out := tls.Alloc(size)
+	defer tls.Free(size)
+	*(*vt.GhosttySelection)(unsafe.Pointer(out)) = vt.GhosttySelection{}
+	if err := resultError(vt.Xghostty_kitty_graphics_placement_rect(
+		tls,
 		it.ptr,
 		img.ptr,
 		t.ptr,
-		&cs,
+		out,
 	)); err != nil {
 		return nil, err
 	}
-	sel := selectionFromC(cs)
+	sel := selectionFromC(*(*vt.GhosttySelection)(unsafe.Pointer(out)))
 	return &sel, nil
+}
+
+// pair calls get with two 4-byte output slots in TLS stack memory and
+// returns their contents. The geometry getters below read two uint32_t
+// or int32_t values this way.
+func pair(get func(tls *libc.TLS, a, b uintptr) vt.GhosttyResult) (a, b [4]byte, err error) {
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	*(*[8]byte)(unsafe.Pointer(out)) = [8]byte{}
+	if err := resultError(get(tls, out, out+4)); err != nil {
+		return [4]byte{}, [4]byte{}, err
+	}
+	return *(*[4]byte)(unsafe.Pointer(out)), *(*[4]byte)(unsafe.Pointer(out + 4)), nil
 }
 
 // PixelSize computes the rendered pixel dimensions of the current
 // placement, accounting for the source rectangle, specified
 // columns/rows, and aspect ratio.
 func (it *KittyGraphicsPlacementIterator) PixelSize(img *KittyGraphicsImage, t *Terminal) (width, height uint32, err error) {
-	var w, h C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_pixel_size(
-		it.ptr,
-		img.ptr,
-		t.ptr,
-		&w,
-		&h,
-	)); err != nil {
+	w, h, err := pair(func(tls *libc.TLS, a, b uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_placement_pixel_size(tls, it.ptr, img.ptr, t.ptr, a, b)
+	})
+	if err != nil {
 		return 0, 0, err
 	}
-	return uint32(w), uint32(h), nil
+	return *(*uint32)(unsafe.Pointer(&w)), *(*uint32)(unsafe.Pointer(&h)), nil
 }
 
 // GridSize computes the number of grid columns and rows the current
 // placement occupies.
 func (it *KittyGraphicsPlacementIterator) GridSize(img *KittyGraphicsImage, t *Terminal) (cols, rows uint32, err error) {
-	var c, r C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_grid_size(
-		it.ptr,
-		img.ptr,
-		t.ptr,
-		&c,
-		&r,
-	)); err != nil {
+	c, r, err := pair(func(tls *libc.TLS, a, b uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_placement_grid_size(tls, it.ptr, img.ptr, t.ptr, a, b)
+	})
+	if err != nil {
 		return 0, 0, err
 	}
-	return uint32(c), uint32(r), nil
+	return *(*uint32)(unsafe.Pointer(&c)), *(*uint32)(unsafe.Pointer(&r)), nil
 }
 
 // ViewportPos returns the column and row of the current placement's
@@ -1214,33 +1173,35 @@ func (it *KittyGraphicsPlacementIterator) GridSize(img *KittyGraphicsImage, t *T
 // [RenderStateImageIterator] instead, which positions every image on
 // screen. Drawing from both draws each image twice.
 func (it *KittyGraphicsPlacementIterator) ViewportPos(img *KittyGraphicsImage, t *Terminal) (col, row int32, err error) {
-	var c, r C.int32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_viewport_pos(
-		it.ptr,
-		img.ptr,
-		t.ptr,
-		&c,
-		&r,
-	)); err != nil {
+	c, r, err := pair(func(tls *libc.TLS, a, b uintptr) vt.GhosttyResult {
+		return vt.Xghostty_kitty_graphics_placement_viewport_pos(tls, it.ptr, img.ptr, t.ptr, a, b)
+	})
+	if err != nil {
 		return 0, 0, err
 	}
-	return int32(c), int32(r), nil
+	return *(*int32)(unsafe.Pointer(&c)), *(*int32)(unsafe.Pointer(&r)), nil
 }
 
 // SourceRect returns the resolved source rectangle for the current
 // placement in pixels, clamped to the actual image bounds. A width
 // or height of 0 in the placement means "use the full image dimension".
 func (it *KittyGraphicsPlacementIterator) SourceRect(img *KittyGraphicsImage) (x, y, width, height uint32, err error) {
-	var cx, cy, cw, ch C.uint32_t
-	if err := resultError(C.ghostty_kitty_graphics_placement_source_rect(
+	tls := getTLS()
+	defer putTLS(tls)
+	out := tls.Alloc(scratchSize)
+	defer tls.Free(scratchSize)
+	v := (*[4]uint32)(unsafe.Pointer(out))
+	*v = [4]uint32{}
+	if err := resultError(vt.Xghostty_kitty_graphics_placement_source_rect(
+		tls,
 		it.ptr,
 		img.ptr,
-		&cx,
-		&cy,
-		&cw,
-		&ch,
+		out,
+		out+4,
+		out+8,
+		out+12,
 	)); err != nil {
 		return 0, 0, 0, 0, err
 	}
-	return uint32(cx), uint32(cy), uint32(cw), uint32(ch), nil
+	return v[0], v[1], v[2], v[3], nil
 }

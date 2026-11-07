@@ -2,14 +2,12 @@ package libghostty
 
 // SGR parser bindings from sgr.h.
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
-
 import (
 	"fmt"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
+	"modernc.org/libc"
 )
 
 // SGRAttributeTag identifies the active value in an [SGRAttribute].
@@ -18,97 +16,97 @@ type SGRAttributeTag int
 
 const (
 	// SGRAttrUnset is the zero-value attribute tag.
-	SGRAttrUnset SGRAttributeTag = C.GHOSTTY_SGR_ATTR_UNSET
+	SGRAttrUnset SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_UNSET
 
 	// SGRAttrUnknown identifies an unknown or malformed parameter sequence.
-	SGRAttrUnknown SGRAttributeTag = C.GHOSTTY_SGR_ATTR_UNKNOWN
+	SGRAttrUnknown SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_UNKNOWN
 
 	// SGRAttrBold enables bold text.
-	SGRAttrBold SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BOLD
+	SGRAttrBold SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BOLD
 
 	// SGRAttrResetBold disables bold text.
-	SGRAttrResetBold SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_BOLD
+	SGRAttrResetBold SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_BOLD
 
 	// SGRAttrItalic enables italic text.
-	SGRAttrItalic SGRAttributeTag = C.GHOSTTY_SGR_ATTR_ITALIC
+	SGRAttrItalic SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_ITALIC
 
 	// SGRAttrResetItalic disables italic text.
-	SGRAttrResetItalic SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_ITALIC
+	SGRAttrResetItalic SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_ITALIC
 
 	// SGRAttrFaint enables faint text.
-	SGRAttrFaint SGRAttributeTag = C.GHOSTTY_SGR_ATTR_FAINT
+	SGRAttrFaint SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_FAINT
 
 	// SGRAttrUnderline sets the underline style in Underline.
-	SGRAttrUnderline SGRAttributeTag = C.GHOSTTY_SGR_ATTR_UNDERLINE
+	SGRAttrUnderline SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_UNDERLINE
 
 	// SGRAttrUnderlineColor sets a direct RGB underline color in Color.
-	SGRAttrUnderlineColor SGRAttributeTag = C.GHOSTTY_SGR_ATTR_UNDERLINE_COLOR
+	SGRAttrUnderlineColor SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_UNDERLINE_COLOR
 
 	// SGRAttrUnderlineColor256 sets a palette underline color in PaletteIndex.
-	SGRAttrUnderlineColor256 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_UNDERLINE_COLOR_256
+	SGRAttrUnderlineColor256 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_UNDERLINE_COLOR_256
 
 	// SGRAttrResetUnderlineColor resets the underline color.
-	SGRAttrResetUnderlineColor SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_UNDERLINE_COLOR
+	SGRAttrResetUnderlineColor SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_UNDERLINE_COLOR
 
 	// SGRAttrOverline enables overline.
-	SGRAttrOverline SGRAttributeTag = C.GHOSTTY_SGR_ATTR_OVERLINE
+	SGRAttrOverline SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_OVERLINE
 
 	// SGRAttrResetOverline disables overline.
-	SGRAttrResetOverline SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_OVERLINE
+	SGRAttrResetOverline SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_OVERLINE
 
 	// SGRAttrBlink enables blinking text.
-	SGRAttrBlink SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BLINK
+	SGRAttrBlink SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BLINK
 
 	// SGRAttrResetBlink disables blinking text.
-	SGRAttrResetBlink SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_BLINK
+	SGRAttrResetBlink SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_BLINK
 
 	// SGRAttrInverse enables inverse video.
-	SGRAttrInverse SGRAttributeTag = C.GHOSTTY_SGR_ATTR_INVERSE
+	SGRAttrInverse SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_INVERSE
 
 	// SGRAttrResetInverse disables inverse video.
-	SGRAttrResetInverse SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_INVERSE
+	SGRAttrResetInverse SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_INVERSE
 
 	// SGRAttrInvisible enables invisible text.
-	SGRAttrInvisible SGRAttributeTag = C.GHOSTTY_SGR_ATTR_INVISIBLE
+	SGRAttrInvisible SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_INVISIBLE
 
 	// SGRAttrResetInvisible disables invisible text.
-	SGRAttrResetInvisible SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_INVISIBLE
+	SGRAttrResetInvisible SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_INVISIBLE
 
 	// SGRAttrStrikethrough enables strikethrough.
-	SGRAttrStrikethrough SGRAttributeTag = C.GHOSTTY_SGR_ATTR_STRIKETHROUGH
+	SGRAttrStrikethrough SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_STRIKETHROUGH
 
 	// SGRAttrResetStrikethrough disables strikethrough.
-	SGRAttrResetStrikethrough SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_STRIKETHROUGH
+	SGRAttrResetStrikethrough SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_STRIKETHROUGH
 
 	// SGRAttrDirectColorFG sets a direct RGB foreground color in Color.
-	SGRAttrDirectColorFG SGRAttributeTag = C.GHOSTTY_SGR_ATTR_DIRECT_COLOR_FG
+	SGRAttrDirectColorFG SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_DIRECT_COLOR_FG
 
 	// SGRAttrDirectColorBG sets a direct RGB background color in Color.
-	SGRAttrDirectColorBG SGRAttributeTag = C.GHOSTTY_SGR_ATTR_DIRECT_COLOR_BG
+	SGRAttrDirectColorBG SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_DIRECT_COLOR_BG
 
 	// SGRAttrBG8 sets an eight-color background in PaletteIndex.
-	SGRAttrBG8 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BG_8
+	SGRAttrBG8 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BG_8
 
 	// SGRAttrFG8 sets an eight-color foreground in PaletteIndex.
-	SGRAttrFG8 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_FG_8
+	SGRAttrFG8 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_FG_8
 
 	// SGRAttrResetFG resets the foreground color.
-	SGRAttrResetFG SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_FG
+	SGRAttrResetFG SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_FG
 
 	// SGRAttrResetBG resets the background color.
-	SGRAttrResetBG SGRAttributeTag = C.GHOSTTY_SGR_ATTR_RESET_BG
+	SGRAttrResetBG SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_RESET_BG
 
 	// SGRAttrBrightBG8 sets a bright eight-color background in PaletteIndex.
-	SGRAttrBrightBG8 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BRIGHT_BG_8
+	SGRAttrBrightBG8 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BRIGHT_BG_8
 
 	// SGRAttrBrightFG8 sets a bright eight-color foreground in PaletteIndex.
-	SGRAttrBrightFG8 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BRIGHT_FG_8
+	SGRAttrBrightFG8 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BRIGHT_FG_8
 
 	// SGRAttrBG256 sets a 256-color background in PaletteIndex.
-	SGRAttrBG256 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_BG_256
+	SGRAttrBG256 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_BG_256
 
 	// SGRAttrFG256 sets a 256-color foreground in PaletteIndex.
-	SGRAttrFG256 SGRAttributeTag = C.GHOSTTY_SGR_ATTR_FG_256
+	SGRAttrFG256 SGRAttributeTag = vt.GHOSTTY_SGR_ATTR_FG_256
 )
 
 // SGRUnderline identifies an SGR underline style.
@@ -149,30 +147,40 @@ type SGRAttribute struct {
 // SGRParser parses CSI SGR parameter lists into semantic attributes.
 // C: GhosttySgrParser
 type SGRParser struct {
-	ptr C.GhosttySgrParser
+	ptr vt.GhosttySgrParser
 }
 
 // NewSGRParser creates a reusable SGR parser.
 func NewSGRParser() (*SGRParser, error) {
-	var ptr C.GhosttySgrParser
-	if err := resultError(C.ghostty_sgr_new(nil, &ptr)); err != nil {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	if err := resultError(vt.Xghostty_sgr_new(tls, 0, out)); err != nil {
 		return nil, err
 	}
-	return &SGRParser{ptr: ptr}, nil
+	return &SGRParser{ptr: *(*uintptr)(unsafe.Pointer(out))}, nil
 }
 
 // Close frees the parser. Calling Close again is a safe no-op.
 func (p *SGRParser) Close() {
-	if p == nil || p.ptr == nil {
+	if p == nil || p.ptr == 0 {
 		return
 	}
-	C.ghostty_sgr_free(p.ptr)
-	p.ptr = nil
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_sgr_free(tls, p.ptr)
+	p.ptr = 0
 }
 
 // Reset restarts iteration at the beginning of the current parameter list.
 func (p *SGRParser) Reset() {
-	C.ghostty_sgr_reset(p.ptr)
+	tls := getTLS()
+	defer putTLS(tls)
+	vt.Xghostty_sgr_reset(tls, p.ptr)
 }
 
 // SetParams copies a CSI SGR parameter list into the parser. separators may
@@ -186,50 +194,62 @@ func (p *SGRParser) SetParams(params []uint16, separators []byte) error {
 			len(params),
 		)
 	}
+	tls := getTLS()
+	defer putTLS(tls)
 
-	var paramsPtr *C.uint16_t
+	// The parser copies both lists, so they are passed from TLS memory for
+	// the duration of the call.
+	var paramsPtr uintptr
 	if len(params) > 0 {
-		paramsPtr = (*C.uint16_t)(unsafe.Pointer(&params[0]))
+		n := len(params) * 2
+		paramsPtr = tls.Alloc(n)
+		defer tls.Free(n)
+		copy(unsafe.Slice((*uint16)(unsafe.Pointer(paramsPtr)), len(params)), params)
 	}
-	var separatorsPtr *C.char
-	if len(separators) > 0 {
-		separatorsPtr = (*C.char)(unsafe.Pointer(&separators[0]))
-	}
+	separatorsPtr, free := cBytes(tls, separators)
+	defer free()
 
-	return resultError(C.ghostty_sgr_set_params(
+	return resultError(vt.Xghostty_sgr_set_params(
+		tls,
 		p.ptr,
 		paramsPtr,
 		separatorsPtr,
-		C.size_t(len(params)),
+		uint64(len(params)),
 	))
 }
 
 // Next returns the next parsed attribute. The boolean is false when the
 // current parameter list is exhausted.
 func (p *SGRParser) Next() (SGRAttribute, bool) {
-	var raw C.GhosttySgrAttribute
-	if !bool(C.ghostty_sgr_next(p.ptr, &raw)) {
+	tls := getTLS()
+	defer putTLS(tls)
+
+	const n = int(unsafe.Sizeof(vt.GhosttySgrAttribute{}))
+	raw := tls.Alloc(n)
+	defer tls.Free(n)
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(raw)), n))
+	if vt.Xghostty_sgr_next(tls, p.ptr, raw) == 0 {
 		return SGRAttribute{}, false
 	}
 
 	attr := SGRAttribute{
-		Tag: SGRAttributeTag(C.ghostty_sgr_attribute_tag(&raw)),
+		Tag: SGRAttributeTag(vt.Xghostty_sgr_attribute_tag(tls, raw)),
 	}
-	value := C.ghostty_sgr_attribute_value(&raw)
+	value := vt.Xghostty_sgr_attribute_value(tls, raw)
 
 	switch attr.Tag {
 	case SGRAttrUnknown:
-		unknown := *(*C.GhosttySgrUnknown)(unsafe.Pointer(value))
-		attr.Unknown = sgrUnknownFromC(unknown)
+		unknown := *(*vt.GhosttySgrUnknown)(unsafe.Pointer(value))
+		attr.Unknown = sgrUnknownFromC(tls, unknown)
 
 	case SGRAttrUnderline:
 		attr.Underline = SGRUnderline(
-			*(*C.GhosttySgrUnderline)(unsafe.Pointer(value)),
+			*(*vt.GhosttySgrUnderline)(unsafe.Pointer(value)),
 		)
 
 	case SGRAttrUnderlineColor, SGRAttrDirectColorFG, SGRAttrDirectColorBG:
 		attr.Color = colorRGBFromC(
-			*(*C.GhosttyColorRgb)(unsafe.Pointer(value)),
+			*(*vt.GhosttyColorRgb)(unsafe.Pointer(value)),
 		)
 
 	case SGRAttrUnderlineColor256,
@@ -239,9 +259,7 @@ func (p *SGRParser) Next() (SGRAttribute, bool) {
 		SGRAttrBrightFG8,
 		SGRAttrBG256,
 		SGRAttrFG256:
-		attr.PaletteIndex = uint8(
-			*(*C.GhosttyColorPaletteIndex)(unsafe.Pointer(value)),
-		)
+		attr.PaletteIndex = *(*vt.GhosttyColorPaletteIndex)(unsafe.Pointer(value))
 	}
 
 	return attr, true
@@ -249,19 +267,26 @@ func (p *SGRParser) Next() (SGRAttribute, bool) {
 
 // sgrUnknownFromC copies both borrowed parameter slices from an unknown
 // attribute into Go-owned memory.
-func sgrUnknownFromC(unknown C.GhosttySgrUnknown) SGRUnknown {
-	var fullPtr *C.uint16_t
-	fullLen := C.ghostty_sgr_unknown_full(unknown, &fullPtr)
+func sgrUnknownFromC(tls *libc.TLS, unknown vt.GhosttySgrUnknown) SGRUnknown {
+	// The out-parameter receives the address of each list.
+	const n = int(unsafe.Sizeof(uintptr(0)))
+	out := tls.Alloc(n)
+	defer tls.Free(n)
+
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	fullLen := vt.Xghostty_sgr_unknown_full(tls, unknown, out)
+	fullPtr := *(*uintptr)(unsafe.Pointer(out))
 	full := make([]uint16, int(fullLen))
-	for i, value := range unsafe.Slice(fullPtr, int(fullLen)) {
-		full[i] = uint16(value)
+	if fullLen > 0 {
+		copy(full, unsafe.Slice((*uint16)(unsafe.Pointer(fullPtr)), int(fullLen)))
 	}
 
-	var partialPtr *C.uint16_t
-	partialLen := C.ghostty_sgr_unknown_partial(unknown, &partialPtr)
+	*(*uintptr)(unsafe.Pointer(out)) = 0
+	partialLen := vt.Xghostty_sgr_unknown_partial(tls, unknown, out)
+	partialPtr := *(*uintptr)(unsafe.Pointer(out))
 	partial := make([]uint16, int(partialLen))
-	for i, value := range unsafe.Slice(partialPtr, int(partialLen)) {
-		partial[i] = uint16(value)
+	if partialLen > 0 {
+		copy(partial, unsafe.Slice((*uint16)(unsafe.Pointer(partialPtr)), int(partialLen)))
 	}
 
 	return SGRUnknown{

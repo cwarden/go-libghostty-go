@@ -1,11 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-*/
-import "C"
+import (
+	"fmt"
 
-import "fmt"
+	"go.mitchellh.com/libghostty/internal/vt"
+)
 
 // Result represents a Ghostty result code.
 //
@@ -14,37 +13,37 @@ type Result int
 
 const (
 	// ResultSuccess indicates that an operation completed successfully.
-	ResultSuccess Result = C.GHOSTTY_SUCCESS
+	ResultSuccess Result = vt.GHOSTTY_SUCCESS
 
 	// ResultOutOfMemory indicates that an allocation failed.
-	ResultOutOfMemory Result = C.GHOSTTY_OUT_OF_MEMORY
+	ResultOutOfMemory Result = vt.GHOSTTY_OUT_OF_MEMORY
 
 	// ResultInvalidValue indicates that an argument or encoded value was invalid.
-	ResultInvalidValue Result = C.GHOSTTY_INVALID_VALUE
+	ResultInvalidValue Result = vt.GHOSTTY_INVALID_VALUE
 
 	// ResultOutOfSpace indicates that a caller-provided buffer was too small.
-	ResultOutOfSpace Result = C.GHOSTTY_OUT_OF_SPACE
+	ResultOutOfSpace Result = vt.GHOSTTY_OUT_OF_SPACE
 
 	// ResultNoValue indicates that the requested value is unavailable.
-	ResultNoValue Result = C.GHOSTTY_NO_VALUE
+	ResultNoValue Result = vt.GHOSTTY_NO_VALUE
 
 	// ResultIOError indicates that external reader or writer I/O failed.
-	ResultIOError Result = C.GHOSTTY_IO_ERROR
+	ResultIOError Result = vt.GHOSTTY_IO_ERROR
 
 	// ResultLimitExceeded indicates that encoded input exceeded a configured limit.
-	ResultLimitExceeded Result = C.GHOSTTY_LIMIT_EXCEEDED
+	ResultLimitExceeded Result = vt.GHOSTTY_LIMIT_EXCEEDED
 
 	// ResultRejected indicates that an operation was rejected by a safety check.
 	// The caller may confirm with the user and retry with the operation's allow
 	// flag set.
-	ResultRejected Result = C.GHOSTTY_REJECTED
+	ResultRejected Result = vt.GHOSTTY_REJECTED
 
 	// ResultUnsupported indicates that the library does not support the
-	// request. Either the loaded library is older than the headers this package
+	// request. Either the library is older than the headers this package
 	// was built with and does not know the key, or the library was built
 	// without the feature the call needs. Compare [ResultInvalidValue], which
 	// means the library knows the key but something passed with it is wrong.
-	ResultUnsupported Result = C.GHOSTTY_UNSUPPORTED
+	ResultUnsupported Result = vt.GHOSTTY_UNSUPPORTED
 )
 
 // Error holds a non-success Ghostty result.
@@ -122,8 +121,8 @@ func (e *Error) Error() string {
 }
 
 // Convert a result code to an error, returning nil on success.
-func resultError(result C.GhosttyResult) error {
-	if result == C.GHOSTTY_SUCCESS {
+func resultError(result vt.GhosttyResult) error {
+	if result == vt.GHOSTTY_SUCCESS {
 		return nil
 	}
 

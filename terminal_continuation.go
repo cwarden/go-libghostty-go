@@ -1,23 +1,10 @@
 package libghostty
 
-/*
-#include <ghostty/vt.h>
-#include "go_io.h"
-
-static inline GhosttyResult ghostty_go_terminal_continuation_write(
-	GhosttyTerminal terminal,
-	uintptr_t userdata
-) {
-	return ghostty_terminal_continuation_write(
-		terminal,
-		ghostty_go_writer(userdata));
-}
-*/
-import "C"
-
 import (
 	"io"
 	"unsafe"
+
+	"go.mitchellh.com/libghostty/internal/vt"
 )
 
 // Continuation returns a Go-owned copy of the replay-safe VT byte suffix
@@ -31,17 +18,24 @@ import (
 // ground.
 // C: ghostty_terminal_continuation_alloc
 func (t *Terminal) Continuation() ([]byte, error) {
-	var outPtr *C.uint8_t
-	var outLen C.size_t
-	if err := resultError(C.ghostty_terminal_continuation_alloc(
+	tls := getTLS()
+	defer putTLS(tls)
+	// Both out-parameters live in TLS memory: the data pointer first, the
+	// length after it.
+	results := tls.Alloc(16)
+	defer tls.Free(16)
+	if err := resultError(vt.Xghostty_terminal_continuation_alloc(
+		tls,
 		t.ptr,
-		nil,
-		&outPtr,
-		&outLen,
+		0,
+		results,
+		results+8,
 	)); err != nil {
 		return nil, err
 	}
-	defer C.ghostty_free(nil, outPtr, outLen)
+	outPtr := *(*uintptr)(unsafe.Pointer(results))
+	outLen := *(*uint64)(unsafe.Pointer(results + 8))
+	defer vt.Xghostty_free(tls, 0, outPtr, outLen)
 
 	length, valid := ghosttySizeToInt(outLen)
 	if !valid {
@@ -64,19 +58,25 @@ func (t *Terminal) Continuation() ([]byte, error) {
 // disabled, this returns an error with result [ResultInvalidValue].
 // C: ghostty_terminal_continuation_buf
 func (t *Terminal) ContinuationBuf(buf []byte) (int, error) {
-	var ptr *C.uint8_t
+	tls := getTLS()
+	defer putTLS(tls)
+	var ptr uintptr
 	if len(buf) > 0 {
-		ptr = (*C.uint8_t)(unsafe.Pointer(&buf[0]))
+		var unpin func()
+		ptr, unpin = pinBytes(buf)
+		defer unpin()
 	}
 
-	var written C.size_t
-	result := C.ghostty_terminal_continuation_buf(
+	out := tls.Alloc(8)
+	defer tls.Free(8)
+	result := vt.Xghostty_terminal_continuation_buf(
+		tls,
 		t.ptr,
 		ptr,
-		C.size_t(len(buf)),
-		&written,
+		uint64(len(buf)),
+		out,
 	)
-	length, valid := ghosttySizeToInt(written)
+	length, valid := ghosttySizeToInt(*(*uint64)(unsafe.Pointer(out)))
 	if !valid {
 		return 0, &Error{Result: ResultLimitExceeded}
 	}
@@ -94,9 +94,8 @@ func (t *Terminal) ContinuationWriteTo(w io.Writer) (int64, error) {
 	}
 	defer bridge.close()
 
-	result := C.ghostty_go_terminal_continuation_write(
-		t.ptr,
-		C.uintptr_t(bridge.handle),
-	)
+	tls := getTLS()
+	defer putTLS(tls)
+	result := vt.Xghostty_terminal_continuation_write(tls, t.ptr, bridge.cWriter())
 	return bridge.written, resultErrorWithCallback(result, bridge.err)
 }
